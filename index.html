@@ -40,7 +40,7 @@
                 <!-- PINK LINE: Restricted to MasterAdmin ONLY -->
                 <button onclick="openGitHubConfigModal()" id="ghStatusBtn" class="restricted-master-only hidden flex items-center space-x-2 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-full text-xs font-medium text-slate-700 transition-colors border border-slate-200">
                     <span id="ghStatusDot" class="w-2 h-2 rounded-full bg-amber-500"></span>
-                    <span id="ghStatusText">GitHub DB: Local Mode</span>
+                    <span id="ghStatusText">GitHub DB: Local</span>
                     <i data-lucide="git-branch" class="w-3.5 h-3.5 text-slate-500"></i>
                 </button>
 
@@ -54,7 +54,7 @@
                     <span id="notificationBadge" class="absolute top-1 right-1 w-2 h-2 bg-rose-500 rounded-full"></span>
                 </button>
 
-                <!-- Right: Biomedical Technical Team Logo & Role Switcher -->
+                <!-- Right: Role Switcher Dropdown -->
                 <div class="relative border-l border-slate-200 pl-4">
                     <button onclick="toggleRoleMenu()" class="flex items-center space-x-2.5 hover:bg-slate-50 p-1.5 rounded-xl transition-colors text-left focus:outline-none">
                         <div class="w-10 h-10 rounded-full overflow-hidden border border-teal-500/40 shadow-xs shrink-0 bg-white flex items-center justify-center">
@@ -65,10 +65,10 @@
                         </div>
                         <div class="hidden sm:block">
                             <div class="flex items-center space-x-1">
-                                <p id="currentRoleTitle" class="text-xs font-bold text-slate-900">Technical</p>
+                                <p id="currentRoleTitle" class="text-xs font-bold text-slate-900">Visitor</p>
                                 <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-slate-400"></i>
                             </div>
-                            <p id="currentRoleSubtitle" class="text-[10px] text-teal-600 font-medium">Biomedical Technical Team</p>
+                            <p id="currentRoleSubtitle" class="text-[10px] text-teal-600 font-medium">Public Viewer (View Only)</p>
                         </div>
                     </button>
 
@@ -76,24 +76,31 @@
                         <div class="px-3 py-1.5 border-b border-slate-100">
                             <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Switch Access Level</p>
                         </div>
-                        <button onclick="switchAccessRole('Technical', 'Biomedical Technical Team')" class="w-full px-3 py-2 text-left text-xs hover:bg-teal-50 flex items-center justify-between group">
+                        <button onclick="requestSwitchRole('Visitor', 'Public Viewer (View Only)')" class="w-full px-3 py-2 text-left text-xs hover:bg-teal-50 flex items-center justify-between group">
                             <div>
-                                <p class="font-semibold text-slate-800 group-hover:text-teal-700">Technical</p>
-                                <p class="text-[10px] text-slate-400">PM, History, Reports, Calibration &amp; Tools</p>
+                                <p class="font-semibold text-slate-800 group-hover:text-teal-700">Visitor (View Only)</p>
+                                <p class="text-[10px] text-slate-400">View schedules, history &amp; tools</p>
                             </div>
-                            <span id="roleCheck-Technical" class="w-2 h-2 rounded-full bg-teal-600"></span>
+                            <span id="roleCheck-Visitor" class="w-2 h-2 rounded-full bg-teal-600"></span>
                         </button>
-                        <button onclick="switchAccessRole('Head Technical', 'Lead Biomedical Supervisor')" class="w-full px-3 py-2 text-left text-xs hover:bg-teal-50 flex items-center justify-between group">
+                        <button onclick="requestSwitchRole('Technical', 'Biomedical Technical Team')" class="w-full px-3 py-2 text-left text-xs hover:bg-teal-50 flex items-center justify-between group">
                             <div>
-                                <p class="font-semibold text-slate-800 group-hover:text-teal-700">Head Technical</p>
-                                <p class="text-[10px] text-slate-400">Unlocks Equipment Inventory Management</p>
+                                <p class="font-semibold text-slate-800 group-hover:text-teal-700">Technical (PW: seiralab2026)</p>
+                                <p class="text-[10px] text-slate-400">Execute PM &amp; log tools</p>
+                            </div>
+                            <span id="roleCheck-Technical" class="w-2 h-2 rounded-full bg-transparent"></span>
+                        </button>
+                        <button onclick="requestSwitchRole('Head Technical', 'Lead Biomedical Supervisor')" class="w-full px-3 py-2 text-left text-xs hover:bg-teal-50 flex items-center justify-between group">
+                            <div>
+                                <p class="font-semibold text-slate-800 group-hover:text-teal-700">Head Technical (PW: seiralabhead)</p>
+                                <p class="text-[10px] text-slate-400">+ Equipment Inventory Management</p>
                             </div>
                             <span id="roleCheck-Head" class="w-2 h-2 rounded-full bg-transparent"></span>
                         </button>
-                        <button onclick="switchAccessRole('MasterAdmin', 'System &amp; GitHub DB Administrator')" class="w-full px-3 py-2 text-left text-xs hover:bg-teal-50 flex items-center justify-between group">
+                        <button onclick="requestSwitchRole('MasterAdmin', 'System &amp; GitHub DB Administrator')" class="w-full px-3 py-2 text-left text-xs hover:bg-teal-50 flex items-center justify-between group">
                             <div>
-                                <p class="font-semibold text-slate-800 group-hover:text-teal-700">MasterAdmin</p>
-                                <p class="text-[10px] text-slate-400">Unlocks GitHub DB Config &amp; Full System</p>
+                                <p class="font-semibold text-slate-800 group-hover:text-teal-700">MasterAdmin (PW: seiralabadmin)</p>
+                                <p class="text-[10px] text-slate-400">Full Access + GitHub DB Config</p>
                             </div>
                             <span id="roleCheck-MasterAdmin" class="w-2 h-2 rounded-full bg-transparent"></span>
                         </button>
@@ -308,7 +315,6 @@
                         </div>
                     </div>
 
-                    <!-- Restricted to MasterAdmin ONLY -->
                     <div class="restricted-master-only hidden mt-6 pt-4 border-t border-slate-100 bg-slate-50 p-3 rounded-xl">
                         <div class="flex items-center justify-between text-xs font-medium text-slate-700">
                             <span class="flex items-center space-x-2">
@@ -506,7 +512,6 @@
                     <h2 class="text-2xl font-bold text-slate-900">Calibration &amp; Metrology Reports</h2>
                     <p class="text-sm text-slate-500">Official calibration certificates, sensor accuracy logs, and traceability records for hospital equipment.</p>
                 </div>
-                <!-- RED LINE: Added Import Calibration Data Button next to Print Calibration Report -->
                 <div class="flex items-center space-x-3">
                     <input type="file" id="calibrationUploadInput" accept=".xls,.xlsx,.csv" class="hidden" onchange="handleCalibrationFileUpload(event)">
                     <button type="button" onclick="document.getElementById('calibrationUploadInput').click()" class="inline-flex items-center justify-center px-4 py-2 bg-white border border-teal-600 text-teal-700 rounded-lg hover:bg-teal-50 font-medium text-sm shadow-xs transition-all space-x-2">
@@ -669,6 +674,28 @@
 
     </main>
 
+    <!-- ROLE PASSWORD PROMPT MODAL -->
+    <div id="rolePasswordModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
+                <h3 id="rolePasswordPromptTitle" class="font-bold text-slate-900 text-base">Enter Role Password</h3>
+                <button onclick="closeRolePasswordModal()" class="text-slate-400 hover:text-slate-600 p-1 rounded-lg">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            <form onsubmit="verifyRolePassword(event)" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Password *</label>
+                    <input type="password" id="rolePasswordInput" required placeholder="Enter password..." class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                </div>
+                <div class="flex items-center justify-end space-x-2 pt-2">
+                    <button type="button" onclick="closeRolePasswordModal()" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium text-xs rounded-lg transition-colors">Cancel</button>
+                    <button type="submit" class="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white font-medium text-xs rounded-lg transition-colors">Authenticate</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- MODAL 0: GITHUB API CONFIGURATION MODAL -->
     <div id="githubConfigModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
         <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200">
@@ -694,7 +721,7 @@
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
                             <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">GitHub Username *</label>
-                            <input type="text" id="ghOwner" placeholder="e.g., your-username" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                            <input type="text" id="ghOwner" placeholder="e.g., raizon001" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
                         </div>
                         <div>
                             <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Repository Name *</label>
@@ -714,7 +741,7 @@
                     <div>
                         <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">GitHub Personal Access Token (PAT) *</label>
                         <input type="password" id="ghToken" placeholder="github_pat_..." class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
-                        <p class="text-[11px] text-slate-400 mt-1">Saved in browser localStorage. Token requires Repository 'Contents: Read and write' permission.</p>
+                        <p class="text-[11px] text-slate-400 mt-1">Encrypted locally in browser. Requires Repository 'Contents: Read and write' permission.</p>
                     </div>
                 </div>
 
@@ -879,55 +906,6 @@
         </div>
     </div>
 
-    <!-- MODAL 4: BORROW BIOMED OFFICE TOOL / KIT -->
-    <div id="borrowToolModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
-        <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200">
-            <div class="flex items-center justify-between pb-4 border-b border-slate-100">
-                <h3 class="font-bold text-slate-900 text-lg flex items-center space-x-2">
-                    <i data-lucide="wrench" class="w-5 h-5 text-teal-600"></i>
-                    <span>Borrow Tool / Test Kit from Biomed Office</span>
-                </h3>
-                <button onclick="closeBorrowToolModal()" class="text-slate-400 hover:text-slate-600 p-1 rounded-lg">
-                    <i data-lucide="x" class="w-5 h-5"></i>
-                </button>
-            </div>
-            <form id="borrowToolForm" onsubmit="saveToolBorrow(event)" class="space-y-4 pt-4">
-                <div>
-                    <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Borrower Name (Engineer / Staff) *</label>
-                    <input type="text" id="toolBorrower" required placeholder="e.g., Eng. Barzce Barcelona" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
-                </div>
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                        <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Tool / Kit Name *</label>
-                        <input type="text" id="toolName" required placeholder="e.g., Fluke 87V Digital Multimeter" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Tool ID / Serial No. *</label>
-                        <input type="text" id="toolCode" required placeholder="e.g., TL-SL-004" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
-                    </div>
-                </div>
-                <div>
-                    <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Destination Hospital / Lab &amp; Purpose *</label>
-                    <input type="text" id="toolDestination" required placeholder="e.g., Cebu City Medical Center - Analyzer Calibration" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
-                </div>
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                        <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Date Borrowed *</label>
-                        <input type="date" id="toolBorrowDate" required class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Time Borrowed *</label>
-                        <input type="time" id="toolBorrowTime" required class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
-                    </div>
-                </div>
-                <div class="pt-4 flex items-center justify-end space-x-3">
-                    <button type="button" onclick="closeBorrowToolModal()" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium text-sm rounded-lg transition-colors">Cancel</button>
-                    <button type="submit" class="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white font-medium text-sm rounded-lg transition-colors">Record Check-Out</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
     <!-- Footer -->
     <footer class="bg-white border-t border-slate-200 mt-auto py-6">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-4">
@@ -940,7 +918,7 @@
         </div>
     </footer>
 
-    <!-- Modular JavaScript Architecture -->
+    <!-- Modular JavaScript Files -->
     <script src="./github-db.js"></script>
     <script src="./app.js"></script>
     <script src="./tools-rbac.js"></script>
