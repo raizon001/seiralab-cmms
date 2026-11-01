@@ -11,3 +11,21 @@ body {
 .tab-content.active {
     display: block;
 }
+
+/* Mobile Header Wrapping Fix */
+@media (max-width: 768px) {
+    header .max-w-7xl {
+        height: auto !important;
+        padding-top: 10px;
+        padding-bottom: 10px;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+    }
+    header .max-w-7xl > div:nth-child(2) {
+        justify-content: space-between;
+        flex-wrap: wrap;
+        border-top: 1px solid #f1f5f9;
+        padding-top: 8px;
+    }
+}
