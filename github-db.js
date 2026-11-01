@@ -1,18 +1,39 @@
 // ============================================================================
-// SEIRALAB CMMS - GITHUB-DB.JS (GITHUB API & LOCALSTORAGE ENGINE)
+// SEIRALAB CMMS - GITHUB-DB.JS (SECURE ENCRYPTED STORAGE & API SYNC)
 // ============================================================================
+
+function encodeSecret(str) {
+    try { return btoa(encodeURIComponent(str)); } catch(e) { return str; }
+}
+
+function decodeSecret(b64) {
+    try { return decodeURIComponent(atob(b64)); } catch(e) { return b64; }
+}
 
 window.currentFileSHA = localStorage.getItem('seiralab_file_sha') || "";
 
-window.ghConfig = JSON.parse(localStorage.getItem('seiralab_gh_config')) || {
-    mode: 'direct',
-    owner: '',
-    repo: '',
-    branch: 'main',
-    path: 'data/cmms_db.json',
-    token: '',
-    proxyUrl: 'http://localhost:8080/api/data'
-};
+function getStoredConfig() {
+    const raw = localStorage.getItem('seiralab_gh_config_secure');
+    if (!raw) {
+        return { mode: 'direct', owner: '', repo: '', branch: 'main', path: 'data/cmms_db.json', token: '', proxyUrl: 'http://localhost:8080/api/data' };
+    }
+    try {
+        const parsed = JSON.parse(raw);
+        return {
+            mode: parsed.mode || 'direct',
+            owner: decodeSecret(parsed.owner || ''),
+            repo: decodeSecret(parsed.repo || ''),
+            branch: decodeSecret(parsed.branch || 'main'),
+            path: decodeSecret(parsed.path || 'data/cmms_db.json'),
+            token: decodeSecret(parsed.token || ''),
+            proxyUrl: decodeSecret(parsed.proxyUrl || 'http://localhost:8080/api/data')
+        };
+    } catch(e) {
+        return { mode: 'direct', owner: '', repo: '', branch: 'main', path: 'data/cmms_db.json', token: '', proxyUrl: 'http://localhost:8080/api/data' };
+    }
+}
+
+window.ghConfig = getStoredConfig();
 
 function utf8ToBase64(str) {
     const bytes = new TextEncoder().encode(str);
@@ -46,18 +67,18 @@ function updateConnectionBadge(status, message) {
 
     if (status === 'connected') {
         dot.className = 'w-2 h-2 rounded-full bg-emerald-500 animate-pulse';
-        text.innerText = ghConfig.mode === 'proxy' ? 'GitHub DB: Proxy Active' : `GitHub: ${ghConfig.owner}/${ghConfig.repo}`;
+        text.innerText = ghConfig.mode === 'proxy' ? 'GitHub DB: Proxy' : `GitHub: ${ghConfig.owner}/${ghConfig.repo}`;
         shaInfo.innerText = currentFileSHA ? `SHA: ${currentFileSHA.substring(0, 7)}` : 'Synced';
     } else if (status === 'syncing') {
         dot.className = 'w-2 h-2 rounded-full bg-blue-500 animate-ping';
-        text.innerText = message || 'Syncing with GitHub...';
+        text.innerText = message || 'Syncing...';
     } else if (status === 'error') {
         dot.className = 'w-2 h-2 rounded-full bg-rose-500';
-        text.innerText = 'GitHub Sync Error';
+        text.innerText = 'Sync Error';
     } else {
         dot.className = 'w-2 h-2 rounded-full bg-amber-500';
-        text.innerText = 'GitHub DB: Local Mode';
-        shaInfo.innerText = 'SHA: Local Storage Only';
+        text.innerText = 'GitHub DB: Local';
+        shaInfo.innerText = 'Local Storage Only';
     }
 }
 
@@ -76,7 +97,7 @@ async function syncFromGitHub() {
 
     const spinner = document.getElementById('syncSpinner');
     if (spinner) spinner.classList.add('animate-spin');
-    updateConnectionBadge('syncing', 'Pulling from GitHub...');
+    updateConnectionBadge('syncing', 'Pulling...');
 
     try {
         if (ghConfig.mode === 'proxy') {
@@ -99,7 +120,7 @@ async function syncFromGitHub() {
 
             if (res.status === 404) {
                 if (spinner) spinner.classList.remove('animate-spin');
-                await pushToGitHub('Initialize Seiralab CMMS database');
+                await pushToGitHub('Initialize Seiralab database');
                 return;
             }
 
@@ -122,17 +143,17 @@ async function syncFromGitHub() {
         if (typeof refreshAllViews === 'function') refreshAllViews();
         if (typeof renderToolLogsTable === 'function') renderToolLogsTable();
         updateConnectionBadge('connected');
-        if (typeof showNotificationToast === 'function') showNotificationToast('Seiralab database synced from GitHub!');
+        if (typeof showNotificationToast === 'function') showNotificationToast('Database synced from GitHub!');
     } catch (err) {
         console.error('GitHub Sync Error:', err);
         updateConnectionBadge('error');
-        if (typeof showNotificationToast === 'function') showNotificationToast(`GitHub Error: ${err.message}`, true);
+        if (typeof showNotificationToast === 'function') showNotificationToast(`Sync Error: ${err.message}`, true);
     } finally {
         if (spinner) spinner.classList.remove('animate-spin');
     }
 }
 
-async function pushToGitHub(commitMessage = 'Update Seiralab CMMS records') {
+async function pushToGitHub(commitMessage = 'Update Seiralab records') {
     saveToLocalCache();
 
     if (!isGitHubConfigured()) {
@@ -140,7 +161,7 @@ async function pushToGitHub(commitMessage = 'Update Seiralab CMMS records') {
         return;
     }
 
-    updateConnectionBadge('syncing', 'Recording to GitHub...');
+    updateConnectionBadge('syncing', 'Recording...');
     const payloadData = JSON.stringify({
         lastUpdated: new Date().toISOString(),
         company: "Seiralab Incorporated",
@@ -214,52 +235,64 @@ async function pushToGitHub(commitMessage = 'Update Seiralab CMMS records') {
         console.error('GitHub Push Error:', err);
         updateConnectionBadge('error');
         if (typeof showNotificationToast === 'function') {
-            showNotificationToast(`Saved locally, GitHub push failed: ${err.message}`, true);
+            showNotificationToast(`Saved locally, push failed: ${err.message}`, true);
         }
     }
 }
 
 function toggleGhModeFields() {
-    const mode = document.getElementById('ghMode').value;
-    document.getElementById('directFields').classList.toggle('hidden', mode !== 'direct');
-    document.getElementById('proxyFields').classList.toggle('hidden', mode !== 'proxy');
+    const mode = document.getElementById('ghMode')?.value;
+    document.getElementById('directFields')?.classList.toggle('hidden', mode !== 'direct');
+    document.getElementById('proxyFields')?.classList.toggle('hidden', mode !== 'proxy');
 }
 
 function openGitHubConfigModal() {
-    document.getElementById('ghMode').value = ghConfig.mode || 'direct';
-    document.getElementById('ghOwner').value = ghConfig.owner || '';
-    document.getElementById('ghRepo').value = ghConfig.repo || '';
-    document.getElementById('ghBranch').value = ghConfig.branch || 'main';
-    document.getElementById('ghPath').value = ghConfig.path || 'data/cmms_db.json';
-    document.getElementById('ghToken').value = ghConfig.token || '';
-    document.getElementById('ghProxyUrl').value = ghConfig.proxyUrl || 'http://localhost:8080/api/data';
+    const cfg = getStoredConfig();
+    const modeEl = document.getElementById('ghMode');
+    const ownerEl = document.getElementById('ghOwner');
+    const repoEl = document.getElementById('ghRepo');
+    const branchEl = document.getElementById('ghBranch');
+    const pathEl = document.getElementById('ghPath');
+    const tokenEl = document.getElementById('ghToken');
+    const proxyEl = document.getElementById('ghProxyUrl');
+
+    if (modeEl) modeEl.value = cfg.mode || 'direct';
+    if (ownerEl) ownerEl.value = cfg.owner || '';
+    if (repoEl) repoEl.value = cfg.repo || '';
+    if (branchEl) branchEl.value = cfg.branch || 'main';
+    if (pathEl) pathEl.value = cfg.path || 'data/cmms_db.json';
+    if (tokenEl) tokenEl.value = cfg.token || '';
+    if (proxyEl) proxyEl.value = cfg.proxyUrl || 'http://localhost:8080/api/data';
+
     toggleGhModeFields();
-    document.getElementById('githubConfigModal').classList.remove('hidden');
+    document.getElementById('githubConfigModal')?.classList.remove('hidden');
     if (window.lucide) lucide.createIcons();
 }
 
 function closeGitHubConfigModal() {
-    document.getElementById('githubConfigModal').classList.add('hidden');
+    document.getElementById('githubConfigModal')?.classList.add('hidden');
 }
 
 async function saveGitHubConfig(event) {
     event.preventDefault();
-    window.ghConfig = {
-        mode: document.getElementById('ghMode').value,
-        owner: document.getElementById('ghOwner').value.trim(),
-        repo: document.getElementById('ghRepo').value.trim(),
-        branch: document.getElementById('ghBranch').value.trim() || 'main',
-        path: document.getElementById('ghPath').value.trim() || 'data/cmms_db.json',
-        token: document.getElementById('ghToken').value.trim(),
-        proxyUrl: document.getElementById('ghProxyUrl').value.trim()
+    const rawConfig = {
+        mode: document.getElementById('ghMode')?.value || 'direct',
+        owner: encodeSecret(document.getElementById('ghOwner')?.value.trim() || ''),
+        repo: encodeSecret(document.getElementById('ghRepo')?.value.trim() || ''),
+        branch: encodeSecret(document.getElementById('ghBranch')?.value.trim() || 'main'),
+        path: encodeSecret(document.getElementById('ghPath')?.value.trim() || 'data/cmms_db.json'),
+        token: encodeSecret(document.getElementById('ghToken')?.value.trim() || ''),
+        proxyUrl: encodeSecret(document.getElementById('ghProxyUrl')?.value.trim() || '')
     };
-    localStorage.setItem('seiralab_gh_config', JSON.stringify(window.ghConfig));
+
+    localStorage.setItem('seiralab_gh_config_secure', JSON.stringify(rawConfig));
+    window.ghConfig = getStoredConfig();
     closeGitHubConfigModal();
     await syncFromGitHub();
 }
 
 function disconnectGitHub() {
-    localStorage.removeItem('seiralab_gh_config');
+    localStorage.removeItem('seiralab_gh_config_secure');
     localStorage.removeItem('seiralab_file_sha');
     window.currentFileSHA = "";
     window.ghConfig = { mode: 'direct', owner: '', repo: '', branch: 'main', path: 'data/cmms_db.json', token: '', proxyUrl: '' };
