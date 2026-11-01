@@ -1,12 +1,12 @@
 // ============================================================================
-// SEIRALAB CMMS - TOOLS-RBAC.JS (PASSWORDS, ROLES & TOOL LOGBOOK)
+// SEIRALAB CMMS - TOOLS-RBAC.JS (INSTANT ROLE AUTH, WELCOME BANNER & TOOLS)
 // ============================================================================
 
 window.currentAccessRole = localStorage.getItem('seiralab_access_role') || 'Visitor';
 
-// DEFAULT ROLE PASSWORDS (You can change these anytime here)
+// ROLE PASSWORDS (Hidden from UI)
 const ROLE_PASSWORDS = {
-    "Visitor": "", // No password needed for viewing
+    "Visitor": "",
     "Technical": "seiralab2026",
     "Head Technical": "seiralabhead",
     "MasterAdmin": "seiralabadmin"
@@ -26,7 +26,7 @@ window.toolLogs = JSON.parse(localStorage.getItem('seiralab_tool_logs')) || DEFA
 window.calibrationList = JSON.parse(localStorage.getItem('seiralab_calibrations')) || DEFAULT_CALIBRATION_LIST;
 
 // ============================================================================
-// 1. ROLE PERMISSIONS & PASSWORD MODAL
+// 1. SELF-HEALING PASSWORD MODAL & INSTANT ROLE SWITCHING
 // ============================================================================
 function isVisitor(role) {
     return role === 'Visitor';
@@ -40,31 +40,79 @@ function isMasterAdminOnly(role) {
     return role === 'MasterAdmin';
 }
 
+// Guarantees the password modal always exists in the DOM so clicking a role never freezes
+function ensurePasswordModalExists() {
+    if (document.getElementById('rolePasswordModal')) return;
+    const modalHTML = `
+    <div id="rolePasswordModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
+                <h3 id="rolePasswordPromptTitle" class="font-bold text-slate-900 text-base">Enter Password</h3>
+                <button type="button" onclick="closeRolePasswordModal()" class="text-slate-400 hover:text-slate-600 p-1 rounded-lg">&times;</button>
+            </div>
+            <form onsubmit="verifyRolePassword(event)" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Authorization Password *</label>
+                    <input type="password" id="rolePasswordInput" required placeholder="Enter password..." class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                </div>
+                <div class="flex items-center justify-end space-x-2 pt-2">
+                    <button type="button" onclick="closeRolePasswordModal()" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium text-xs rounded-lg transition-colors">Cancel</button>
+                    <button type="submit" class="px-4 py-1.5 bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs rounded-lg transition-colors">Login</button>
+                </div>
+            </form>
+        </div>
+    </div>`;
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+}
+
+function showWelcomeBanner(roleName) {
+    const existing = document.getElementById('seiralabWelcomePopup');
+    if (existing) existing.remove();
+
+    const welcomeLabel = roleName === 'MasterAdmin' ? 'Welcome, MasterAdmin!' :
+                         roleName === 'Head Technical' ? 'Welcome, Head Technical!' :
+                         roleName === 'Technical' ? 'Welcome, Technical!' : 'Visitor Mode Active';
+
+    const banner = document.createElement('div');
+    banner.id = 'seiralabWelcomePopup';
+    banner.className = 'fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-teal-700 text-white px-6 py-3 rounded-2xl shadow-2xl text-sm font-bold flex items-center space-x-3 border border-teal-400 transition-all';
+    banner.innerHTML = `<span>&#10003;</span><span>${welcomeLabel}</span>`;
+    document.body.appendChild(banner);
+    setTimeout(() => banner.remove(), 3500);
+}
+
 function applyRolePermissions(roleName) {
     const isVis = isVisitor(roleName);
     const hasSupervisorAccess = isSupervisorOrAdmin(roleName);
     const hasMasterAccess = isMasterAdminOnly(roleName);
 
-    // Hide/show Head & Admin features (Inventory)
     document.querySelectorAll('.restricted-head-master').forEach(el => {
         el.classList.toggle('hidden', !hasSupervisorAccess);
     });
 
-    // Hide/show MasterAdmin features (GitHub DB settings)
     document.querySelectorAll('.restricted-master-only').forEach(el => {
         el.classList.toggle('hidden', !hasMasterAccess);
     });
 
-    // If visitor tries to access inventory, reports, or calibration execution, bounce to dashboard
     if (isVis) {
         const activeTab = document.querySelector('.tab-content.active')?.id;
         if (activeTab === 'inventory' || activeTab === 'reports' || activeTab === 'calibration') {
             if (typeof switchTab === 'function') switchTab('dashboard');
         }
+    } else if (!hasSupervisorAccess) {
+        const activeTab = document.querySelector('.tab-content.active')?.id;
+        if (activeTab === 'inventory') {
+            if (typeof switchTab === 'function') switchTab('dashboard');
+        }
+    }
+
+    if (!hasMasterAccess) {
+        document.getElementById('githubConfigModal')?.classList.add('hidden');
     }
 }
 
-function toggleRoleMenu() {
+function toggleRoleMenu(event) {
+    if (event) event.stopPropagation();
     const menu = document.getElementById('roleDropdownMenu');
     if (menu) menu.classList.toggle('hidden');
 }
@@ -72,24 +120,29 @@ function toggleRoleMenu() {
 let pendingRoleTarget = null;
 
 function requestSwitchRole(roleName, roleSubtitle) {
-    if (roleName === window.currentAccessRole) {
-        document.getElementById('roleDropdownMenu')?.classList.add('hidden');
-        return;
-    }
+    document.getElementById('roleDropdownMenu')?.classList.add('hidden');
+
+    if (roleName === window.currentAccessRole) return;
 
     const requiredPass = ROLE_PASSWORDS[roleName];
     if (!requiredPass) {
-        // Visitor has no password
-        switchAccessRole(roleName, roleSubtitle);
+        switchAccessRole(roleName, roleSubtitle, false);
         return;
     }
 
-    // Prompt for password
+    ensurePasswordModalExists();
     pendingRoleTarget = { name: roleName, subtitle: roleSubtitle };
-    document.getElementById('roleDropdownMenu')?.classList.add('hidden');
-    document.getElementById('rolePasswordInput').value = '';
-    document.getElementById('rolePasswordPromptTitle').innerText = `Enter Password for ${roleName}`;
-    document.getElementById('rolePasswordModal')?.classList.remove('hidden');
+
+    const titleEl = document.getElementById('rolePasswordPromptTitle');
+    const inputEl = document.getElementById('rolePasswordInput');
+    const modalEl = document.getElementById('rolePasswordModal');
+
+    if (titleEl) titleEl.innerText = `Login as ${roleName}`;
+    if (inputEl) inputEl.value = '';
+    if (modalEl) {
+        modalEl.classList.remove('hidden');
+        setTimeout(() => inputEl?.focus(), 50);
+    }
 }
 
 function closeRolePasswordModal() {
@@ -99,18 +152,26 @@ function closeRolePasswordModal() {
 
 function verifyRolePassword(event) {
     event.preventDefault();
-    const typed = document.getElementById('rolePasswordInput')?.value.trim();
+    const inputEl = document.getElementById('rolePasswordInput');
+    const typed = inputEl ? inputEl.value.trim() : '';
     if (!pendingRoleTarget) return;
 
-    const correctPass = ROLE_PASSWORDS[pendingRoleTarget.name];
+    const targetName = pendingRoleTarget.name;
+    const targetSub = pendingRoleTarget.subtitle;
+    const correctPass = ROLE_PASSWORDS[targetName];
+
     if (typed === correctPass) {
         closeRolePasswordModal();
-        switchAccessRole(pendingRoleTarget.name, pendingRoleTarget.subtitle);
+        switchAccessRole(targetName, targetSub, false);
     } else {
         if (typeof showNotificationToast === 'function') {
-            showNotificationToast('Incorrect password for ' + pendingRoleTarget.name, true);
+            showNotificationToast(`Incorrect password for ${targetName}`, true);
         } else {
-            alert('Incorrect password!');
+            alert(`Incorrect password for ${targetName}`);
+        }
+        if (inputEl) {
+            inputEl.value = '';
+            inputEl.focus();
         }
     }
 }
@@ -123,7 +184,9 @@ function switchAccessRole(roleName, roleSubtitle, silent = false) {
     const titleEl = document.getElementById('currentRoleTitle');
     const subEl = document.getElementById('currentRoleSubtitle');
     if (titleEl) titleEl.innerText = roleName;
-    if (subEl) subEl.innerText = roleSubtitle;
+    if (subEl) {
+        subEl.innerText = roleName === 'Visitor' ? 'View Only' : `Welcome, ${roleName}`;
+    }
 
     ['Visitor', 'Technical', 'Head', 'MasterAdmin'].forEach(r => {
         const dot = document.getElementById(`roleCheck-${r}`);
@@ -134,22 +197,156 @@ function switchAccessRole(roleName, roleSubtitle, silent = false) {
     });
 
     applyRolePermissions(roleName);
+    renderToolLogsTable();
 
-    if (!silent && typeof showNotificationToast === 'function') {
-        showNotificationToast(`Switched to: ${roleName}`);
+    if (!silent) {
+        showWelcomeBanner(roleName);
     }
-    if (window.lucide) lucide.createIcons();
 }
+
+// Also support any older HTML button calls that used switchAccessRole directly
+window.requestSwitchRole = requestSwitchRole;
+window.switchAccessRole = switchAccessRole;
 
 window.addEventListener('click', function(e) {
     const menu = document.getElementById('roleDropdownMenu');
-    if (menu && !menu.parentElement.contains(e.target)) {
+    if (menu && !menu.classList.contains('hidden') && !menu.parentElement.contains(e.target)) {
         menu.classList.add('hidden');
     }
 });
 
 // ============================================================================
-// 2. BIOMED OFFICE TOOL & KIT LOGBOOK
+// 2. CALIBRATION REPORT TABLE & EXCEL/CSV IMPORTER
+// ============================================================================
+function renderCalibrationTable() {
+    const tbody = document.getElementById('calibrationTableBody');
+    if (!tbody) return;
+
+    const today = new Date();
+    let dueSoonCount = 0;
+
+    window.calibrationList.forEach(item => {
+        const diffDays = Math.ceil((new Date(item.nextDue) - today) / (1000 * 60 * 60 * 24));
+        if (diffDays <= 30) dueSoonCount++;
+    });
+
+    const elTotal = document.getElementById('statCalTotal');
+    const elDue = document.getElementById('statCalDue');
+    if (elTotal) elTotal.innerText = window.calibrationList.length;
+    if (elDue) elDue.innerText = dueSoonCount;
+
+    tbody.innerHTML = '';
+    if (window.calibrationList.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" class="py-8 text-center text-slate-400 text-sm">No calibration records loaded.</td></tr>`;
+        return;
+    }
+
+    window.calibrationList.slice(0, 100).forEach(item => {
+        const diffDays = Math.ceil((new Date(item.nextDue) - today) / (1000 * 60 * 60 * 24));
+        const dueColor = diffDays < 0 ? 'text-rose-600 font-semibold' : (diffDays <= 30 ? 'text-amber-600 font-semibold' : 'text-emerald-600 font-medium');
+
+        tbody.innerHTML += `
+            <tr class="hover:bg-slate-50/50 transition-colors">
+                <td class="p-4 font-mono font-semibold text-slate-700">${item.id}</td>
+                <td class="p-4 font-semibold text-slate-900">${item.eqName}<br><span class="text-[11px] font-normal text-slate-500">${item.serial}</span></td>
+                <td class="p-4 text-slate-600">${item.facility}</td>
+                <td class="p-4 text-slate-600">${item.calDate}</td>
+                <td class="p-4 ${dueColor}">${item.nextDue}</td>
+                <td class="p-4 text-slate-600">${item.accuracy}</td>
+                <td class="p-4 text-right">
+                    <button onclick="downloadCalibrationCert('${item.id}')" class="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded font-medium transition-colors">Download PDF</button>
+                </td>
+            </tr>
+        `;
+    });
+}
+
+async function handleCalibrationFileUpload(event) {
+    if (isVisitor(window.currentAccessRole)) {
+        if (typeof showNotificationToast === 'function') showNotificationToast('Visitors have view-only access.', true);
+        return;
+    }
+    const file = event.target.files[0];
+    if (!file) return;
+
+    try {
+        if (typeof showNotificationToast === 'function') showNotificationToast(`Importing calibration data from ${file.name}...`);
+        const XLSX = await loadSheetJSLibrary();
+        const data = await file.arrayBuffer();
+        const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+
+        const importedCal = [];
+        let certSeq = 1001;
+
+        workbook.SheetNames.forEach(sheetName => {
+            const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: "" });
+            rows.forEach(row => {
+                const facility = String(row['FACILITY'] || row['ACCOUNT NAME'] || row['ACCOUNTNAME'] || row['Hospital'] || "").trim();
+                const desc = String(row['EQUIPMENT'] || row['DESC'] || row['Equipment Name'] || "").trim();
+                if (!facility || !desc) return;
+
+                const mfg = String(row['MFG'] || "").trim();
+                const model = String(row['MODEL'] || "").trim();
+                const serial = String(row['SN'] || row['SERIAL'] || `SN-CAL-${certSeq}`).trim();
+                const certId = String(row['CERTIFICATE ID'] || row['CERT_ID'] || `CERT-2026-${certSeq}`).trim();
+                const accuracy = String(row['ACCURACY'] || row['ERROR MARGIN'] || "± 0.5% Tolerance (Pass)").trim();
+
+                let calDate = "2026-05-15";
+                let nextDue = "2026-11-15";
+                const rawDate = row['CALIBRATION DATE'] || row['INSTALL DATE'] || row['DATE'];
+                if (rawDate) {
+                    const dt = new Date(rawDate);
+                    if (!isNaN(dt.getTime())) {
+                        calDate = dt.toISOString().split('T')[0];
+                        const m = dt.getMonth();
+                        const d = Math.min(dt.getDate(), 28);
+                        let dueDt = new Date(2026, m, d);
+                        if (dueDt < new Date(2026, 9, 1)) dueDt = new Date(2026, m + 6, d);
+                        nextDue = dueDt.toISOString().split('T')[0];
+                    }
+                }
+
+                const eqTitle = `${mfg ? mfg + ' ' : ''}${desc}${model ? ' (' + model + ')' : ''}`.trim();
+                importedCal.push({ id: certId, eqName: eqTitle, serial, facility, calDate, nextDue, accuracy });
+                certSeq++;
+            });
+        });
+
+        if (importedCal.length > 0) {
+            window.calibrationList = importedCal;
+            localStorage.setItem('seiralab_calibrations', JSON.stringify(window.calibrationList));
+            renderCalibrationTable();
+            if (typeof showNotificationToast === 'function') showNotificationToast(`Imported ${importedCal.length} calibration records!`);
+            if (typeof pushToGitHub === 'function') await pushToGitHub(`Import ${importedCal.length} calibration records`);
+        }
+    } catch (err) {
+        console.error(err);
+        if (typeof showNotificationToast === 'function') showNotificationToast(`Import Error: ${err.message}`, true);
+    } finally {
+        event.target.value = '';
+    }
+}
+
+function downloadCalibrationCert(certId) {
+    const item = window.calibrationList.find(c => c.id === certId);
+    if (!item) return;
+    const content = `=========================================================
+SEIRALAB INCORPORATED - OFFICIAL CALIBRATION CERTIFICATE
+=========================================================
+Certificate No.   : ${item.id}
+Client Facility   : ${item.facility}
+Equipment & Model : ${item.eqName}
+Serial Number     : ${item.serial}
+Calibration Date  : ${item.calDate}
+Next Recalibration: ${item.nextDue}
+Measured Accuracy : ${item.accuracy}
+Standard Status   : ISO/IEC 17025 Traceable — PASSED
+=========================================================`;
+    if (typeof downloadBlob === 'function') downloadBlob(content, `Seiralab_Calibration_${item.id}.txt`, 'text/plain');
+}
+
+// ============================================================================
+// 3. BIOMED OFFICE TOOL & KIT LOGBOOK
 // ============================================================================
 function formatTime12Hr(timeStr) {
     if (!timeStr) return '';
@@ -169,16 +366,12 @@ function renderToolLogsTable() {
     const search = (document.getElementById('toolSearchInput')?.value || '').toLowerCase();
     const statusFilter = document.getElementById('toolStatusFilter')?.value || '';
 
-    const total = window.toolLogs.length;
-    const outCount = window.toolLogs.filter(t => t.status === 'Borrowed').length;
-    const returnedCount = window.toolLogs.filter(t => t.status === 'Returned').length;
-
     const elTotal = document.getElementById('statToolsTotal');
     const elOut = document.getElementById('statToolsOut');
     const elRet = document.getElementById('statToolsReturned');
-    if (elTotal) elTotal.innerText = total;
-    if (elOut) elOut.innerText = outCount;
-    if (elRet) elRet.innerText = returnedCount;
+    if (elTotal) elTotal.innerText = window.toolLogs.length;
+    if (elOut) elOut.innerText = window.toolLogs.filter(t => t.status === 'Borrowed').length;
+    if (elRet) elRet.innerText = window.toolLogs.filter(t => t.status === 'Returned').length;
 
     const filtered = window.toolLogs.filter(t => {
         const matchSearch = t.borrower.toLowerCase().includes(search) ||
@@ -195,12 +388,12 @@ function renderToolLogsTable() {
         return;
     }
 
+    const isVis = isVisitor(window.currentAccessRole);
     filtered.forEach(log => {
         const statusBadge = log.status === 'Borrowed'
             ? `<span class="px-2.5 py-1 bg-amber-100 text-amber-800 rounded-full text-xs font-semibold inline-flex items-center space-x-1.5"><span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span><span>Borrowed (Out)</span></span>`
             : `<span class="px-2.5 py-1 bg-emerald-100 text-emerald-700 rounded-full text-xs font-semibold inline-flex items-center space-x-1.5"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span><span>Returned</span></span>`;
 
-        const isVis = isVisitor(window.currentAccessRole);
         const actionBtns = isVis ? `<span class="text-xs text-slate-400 italic">View Only</span>` : (
             log.status === 'Borrowed'
                 ? `<button onclick="markToolReturned(${log.id})" class="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-xs font-medium transition-colors shadow-xs">Mark Returned</button>`
@@ -219,7 +412,6 @@ function renderToolLogsTable() {
             </tr>
         `;
     });
-    if (window.lucide) lucide.createIcons();
 }
 
 function openBorrowToolModal() {
@@ -232,7 +424,6 @@ function openBorrowToolModal() {
     document.getElementById('toolBorrowDate').value = now.toISOString().split('T')[0];
     document.getElementById('toolBorrowTime').value = now.toTimeString().slice(0, 5);
     document.getElementById('borrowToolModal')?.classList.remove('hidden');
-    if (window.lucide) lucide.createIcons();
 }
 
 function closeBorrowToolModal() {
@@ -250,29 +441,15 @@ async function saveToolBorrow(event) {
     const borrowDate = document.getElementById('toolBorrowDate').value;
     const borrowTime = document.getElementById('toolBorrowTime').value;
 
-    const newEntry = {
-        id: Date.now(),
-        borrower,
-        toolName,
-        toolCode,
-        destination,
-        borrowDate,
-        borrowTime,
-        returnDateTime: "",
-        status: "Borrowed"
-    };
-
-    window.toolLogs.unshift(newEntry);
+    window.toolLogs.unshift({
+        id: Date.now(), borrower, toolName, toolCode, destination, borrowDate, borrowTime, returnDateTime: "", status: "Borrowed"
+    });
     localStorage.setItem('seiralab_tool_logs', JSON.stringify(window.toolLogs));
     closeBorrowToolModal();
     renderToolLogsTable();
 
-    if (typeof showNotificationToast === 'function') {
-        showNotificationToast(`Logged out ${toolName} to ${borrower}`);
-    }
-    if (typeof pushToGitHub === 'function') {
-        await pushToGitHub(`Tool Check-Out: ${toolName} (${toolCode}) by ${borrower}`);
-    }
+    if (typeof showNotificationToast === 'function') showNotificationToast(`Logged out ${toolName} to ${borrower}`);
+    if (typeof pushToGitHub === 'function') await pushToGitHub(`Tool Check-Out: ${toolName} (${toolCode}) by ${borrower}`);
 }
 
 async function markToolReturned(logId) {
@@ -289,12 +466,8 @@ async function markToolReturned(logId) {
     localStorage.setItem('seiralab_tool_logs', JSON.stringify(window.toolLogs));
     renderToolLogsTable();
 
-    if (typeof showNotificationToast === 'function') {
-        showNotificationToast(`Marked ${log.toolName} as Returned!`);
-    }
-    if (typeof pushToGitHub === 'function') {
-        await pushToGitHub(`Tool Returned: ${log.toolName} (${log.toolCode}) by ${log.borrower}`);
-    }
+    if (typeof showNotificationToast === 'function') showNotificationToast(`Marked ${log.toolName} as Returned!`);
+    if (typeof pushToGitHub === 'function') await pushToGitHub(`Tool Returned: ${log.toolName} (${log.toolCode}) by ${log.borrower}`);
 }
 
 function exportToolLogsCSV() {
@@ -303,21 +476,13 @@ function exportToolLogsCSV() {
         t.id, `"${t.borrower}"`, `"${t.toolName}"`, `"${t.toolCode}"`, `"${t.destination}"`, t.borrowDate, t.borrowTime, `"${t.returnDateTime || 'Still Out'}"`, t.status
     ]);
     const csv = [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
-    if (typeof downloadBlob === 'function') {
-        downloadBlob(csv, `Seiralab_Biomed_Tool_Logbook_${new Date().toISOString().split('T')[0]}.csv`, 'text/csv');
-    }
-    if (typeof showNotificationToast === 'function') {
-        showNotificationToast("Downloaded Tool Logbook CSV!");
-    }
+    if (typeof downloadBlob === 'function') downloadBlob(csv, `Seiralab_Biomed_Tool_Logbook_${new Date().toISOString().split('T')[0]}.csv`, 'text/csv');
 }
 
-// Guarded Tab Switcher for Visitors
 const baseSwitchTab = window.switchTab;
 window.switchTab = function(tabId) {
-    if (isVisitor(window.currentAccessRole) && (tabId === 'inventory' || tabId === 'reports' || tabId === 'calibration')) {
-        if (typeof showNotificationToast === 'function') {
-            showNotificationToast('Visitors have view-only access to Dashboard, PM Schedule, History & Tools.', true);
-        }
+    if (tabId === 'inventory' && !isSupervisorOrAdmin(window.currentAccessRole)) {
+        if (typeof showNotificationToast === 'function') showNotificationToast('Only Head Technical & MasterAdmin can access Inventory.', true);
         return;
     }
     if (typeof baseSwitchTab === 'function') {
@@ -336,12 +501,25 @@ window.switchTab = function(tabId) {
         }
     }
     if (tabId === 'tools') renderToolLogsTable();
-    if (window.lucide) lucide.createIcons();
+    if (tabId === 'calibration') renderCalibrationTable();
 };
 
 window.addEventListener('DOMContentLoaded', function() {
+    ensurePasswordModalExists();
+
+    // Automatically clean any old password/subtitle text from the role dropdown if index.html is cached
+    document.querySelectorAll('#roleDropdownMenu button').forEach(btn => {
+        const sub = btn.querySelector('p:nth-child(2)');
+        if (sub) sub.remove();
+        const title = btn.querySelector('p:first-child');
+        if (title) {
+            title.innerText = title.innerText.replace(/\s*\(.*?\)/g, '').trim();
+        }
+    });
+
     const savedRole = localStorage.getItem('seiralab_access_role') || 'Visitor';
-    const savedSub = localStorage.getItem('seiralab_access_subtitle') || 'Public Viewer (View Only)';
+    const savedSub = localStorage.getItem('seiralab_access_subtitle') || 'View Only';
     switchAccessRole(savedRole, savedSub, true);
+    renderCalibrationTable();
     renderToolLogsTable();
 });
