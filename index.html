@@ -496,26 +496,30 @@
             </div>
         </div>
 
-        <!-- TAB 6: CALIBRATION REPORT -->
+       <!-- TAB 6: CALIBRATION REPORT -->
         <div id="calibration" class="tab-content space-y-6">
             <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div>
                     <h2 class="text-2xl font-bold text-slate-900">Calibration &amp; Metrology Reports</h2>
                     <p class="text-sm text-slate-500">Official calibration certificates, sensor accuracy logs, and traceability records for hospital equipment.</p>
                 </div>
-                <div class="flex items-center space-x-3">
-                    <input type="file" id="calibrationUploadInput" accept=".xls,.xlsx,.csv" class="hidden" onchange="handleCalibrationFileUpload(event)">
-                    <button type="button" onclick="document.getElementById('calibrationUploadInput').click()" class="inline-flex items-center justify-center px-4 py-2 bg-white border border-teal-600 text-teal-700 rounded-lg hover:bg-teal-50 font-medium text-sm shadow-xs transition-all space-x-2">
-                        <i data-lucide="upload-cloud" class="w-4 h-4"></i>
-                        <span>Import Calibration Data</span>
+                <div class="flex flex-wrap items-center gap-3">
+                    <!-- GREEN LINE: Add Calibration Report Button -->
+                    <button type="button" id="btnAddCalibrationReport" onclick="openAddCalibrationModal()" class="inline-flex items-center justify-center px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 font-medium text-sm shadow-sm transition-all space-x-2">
+                        <i data-lucide="plus" class="w-4 h-4"></i>
+                        <span>Add Calibration Report</span>
                     </button>
-                    <button onclick="window.print()" class="inline-flex items-center justify-center px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 font-medium text-sm shadow-sm transition-all space-x-2">
+                    <!-- PINK LINE: Export Calibration Data Button -->
+                    <button type="button" id="btnExportCalibrationData" onclick="exportCalibrationDataCSV()" class="inline-flex items-center justify-center px-4 py-2 bg-white border border-teal-600 text-teal-700 rounded-lg hover:bg-teal-50 font-medium text-sm shadow-xs transition-all space-x-2">
+                        <i data-lucide="download" class="w-4 h-4"></i>
+                        <span>Export Calibration Data</span>
+                    </button>
+                    <button type="button" onclick="window.print()" class="inline-flex items-center justify-center px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-900 font-medium text-sm shadow-sm transition-all space-x-2">
                         <i data-lucide="printer" class="w-4 h-4"></i>
                         <span>Print Calibration Report</span>
                     </button>
                 </div>
             </div>
-
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
                     <div>
