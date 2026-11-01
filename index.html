@@ -72,36 +72,27 @@
                         </div>
                     </button>
 
-                    <div id="roleDropdownMenu" class="hidden absolute right-0 mt-2 w-64 bg-white rounded-xl shadow-lg border border-slate-200 py-2 z-50">
+                   <div id="roleDropdownMenu" class="hidden absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-lg border border-slate-200 py-1.5 z-50">
                         <div class="px-3 py-1.5 border-b border-slate-100">
                             <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Switch Access Level</p>
                         </div>
-                        <button onclick="requestSwitchRole('Visitor', 'Public Viewer (View Only)')" class="w-full px-3 py-2 text-left text-xs hover:bg-teal-50 flex items-center justify-between group">
-                            <div>
-                                <p class="font-semibold text-slate-800 group-hover:text-teal-700">Visitor (View Only)</p>
-                                <p class="text-[10px] text-slate-400">View schedules, history &amp; tools</p>
-                            </div>
+                        <button type="button" onclick="requestSwitchRole('Visitor', 'View Only')" class="w-full px-3 py-2.5 text-left text-xs hover:bg-teal-50 flex items-center justify-between group">
+                            <span class="font-semibold text-slate-800 group-hover:text-teal-700">Visitor</span>
                             <span id="roleCheck-Visitor" class="w-2 h-2 rounded-full bg-teal-600"></span>
                         </button>
-                        <button onclick="requestSwitchRole('Technical', 'Biomedical Technical Team')" class="w-full px-3 py-2 text-left text-xs hover:bg-teal-50 flex items-center justify-between group">
-                            <div>
-                                <p class="font-semibold text-slate-800 group-hover:text-teal-700">Technical (PW: seiralab2026)</p>
-                                <p class="text-[10px] text-slate-400">Execute PM &amp; log tools</p>
-                            </div>
+                        <button type="button" onclick="requestSwitchRole('Technical', 'Welcome, Technical')" class="w-full px-3 py-2.5 text-left text-xs hover:bg-teal-50 flex items-center justify-between group">
+                            <span class="font-semibold text-slate-800 group-hover:text-teal-700">Technical</span>
                             <span id="roleCheck-Technical" class="w-2 h-2 rounded-full bg-transparent"></span>
                         </button>
-                        <button onclick="requestSwitchRole('Head Technical', 'Lead Biomedical Supervisor')" class="w-full px-3 py-2 text-left text-xs hover:bg-teal-50 flex items-center justify-between group">
-                            <div>
-                                <p class="font-semibold text-slate-800 group-hover:text-teal-700">Head Technical (PW: seiralabhead)</p>
-                                <p class="text-[10px] text-slate-400">+ Equipment Inventory Management</p>
-                            </div>
+                        <button type="button" onclick="requestSwitchRole('Head Technical', 'Welcome, Head Technical')" class="w-full px-3 py-2.5 text-left text-xs hover:bg-teal-50 flex items-center justify-between group">
+                            <span class="font-semibold text-slate-800 group-hover:text-teal-700">Head Technical</span>
                             <span id="roleCheck-Head" class="w-2 h-2 rounded-full bg-transparent"></span>
                         </button>
-                        <button onclick="requestSwitchRole('MasterAdmin', 'System &amp; GitHub DB Administrator')" class="w-full px-3 py-2 text-left text-xs hover:bg-teal-50 flex items-center justify-between group">
-                            <div>
-                                <p class="font-semibold text-slate-800 group-hover:text-teal-700">MasterAdmin (PW: seiralabadmin)</p>
-                                <p class="text-[10px] text-slate-400">Full Access + GitHub DB Config</p>
-                            </div>
+                        <button type="button" onclick="requestSwitchRole('MasterAdmin', 'Welcome, MasterAdmin')" class="w-full px-3 py-2.5 text-left text-xs hover:bg-teal-50 flex items-center justify-between group">
+                            <span class="font-semibold text-slate-800 group-hover:text-teal-700">MasterAdmin</span>
+                            <span id="roleCheck-MasterAdmin" class="w-2 h-2 rounded-full bg-transparent"></span>
+                        </button>
+                    </div>
                             <span id="roleCheck-MasterAdmin" class="w-2 h-2 rounded-full bg-transparent"></span>
                         </button>
                     </div>
