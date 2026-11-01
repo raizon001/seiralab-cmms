@@ -73,7 +73,7 @@ function buildFullScreenLoginPortal() {
                     </div>
                 </div>
 
-                <h2 class="text-xl font-bold text-white tracking-tight">Biomedical Technical Portal</h2>
+                <h2 class="text-xl font-bold text-white tracking-tight">ATLAS</h2>
                 <p class="text-xs text-slate-400 mt-1 mb-6">Select your access role and enter your authorization password</p>
 
                 <form onsubmit="submitPortalLogin(event)" class="space-y-5 text-left">
