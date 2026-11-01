@@ -1,8 +1,9 @@
 // ============================================================================
-// SEIRALAB CMMS - TOOLS-RBAC.JS (RBAC, NOTIFICATIONS, CALIBRATION & TOOLS)
+// SEIRALAB CMMS - TOOLS-RBAC.JS
+// FULL-SCREEN LIVE WALLPAPER LOGIN PORTAL + RBAC + CALIBRATION + TOOL LOGBOOK
 // ============================================================================
 
-window.currentAccessRole = localStorage.getItem('seiralab_access_role') || 'Visitor';
+window.currentAccessRole = sessionStorage.getItem('seiralab_active_session_role') || '';
 
 const ROLE_PASSWORDS = {
     "Visitor": "",
@@ -25,7 +26,322 @@ window.toolLogs = JSON.parse(localStorage.getItem('seiralab_tool_logs')) || DEFA
 window.calibrationList = JSON.parse(localStorage.getItem('seiralab_calibrations')) || DEFAULT_CALIBRATION_LIST;
 
 // ============================================================================
-// 1. ROLE PERMISSIONS & PASSWORD AUTHENTICATION
+// 1. FULL-SCREEN LOGIN PORTAL WITH INTERACTIVE LIVE WALLPAPER
+// ============================================================================
+let wallpaperMode = localStorage.getItem('seiralab_wallpaper_mode') || 'network'; // 'network' | 'ecg' | 'static'
+let wallpaperAnimId = null;
+
+function buildFullScreenLoginPortal() {
+    if (document.getElementById('seiralabLoginPortal')) return;
+
+    const portalHTML = `
+    <div id="seiralabLoginPortal" class="fixed inset-0 z-[100] bg-slate-950 flex flex-col justify-between overflow-hidden select-none">
+        <!-- Interactive HTML5 Canvas Live Wallpaper -->
+        <canvas id="liveWallpaperCanvas" class="absolute inset-0 w-full h-full pointer-events-none"></canvas>
+
+        <!-- Top Bar: Seiralab Incorporated Wide Banner Logo (Top-Left per Sketch) -->
+        <div class="relative z-10 p-5 sm:p-8 flex items-center justify-between">
+            <div class="bg-white/95 backdrop-blur-md px-4 py-2 rounded-2xl shadow-xl border border-white/20 inline-flex items-center space-x-3">
+                <img src="./seiralab-logo.gIH9ySyn.jpg" 
+                     alt="Seiralab Incorporated" 
+                     class="h-10 sm:h-12 w-auto object-contain"
+                     onerror="this.onerror=null; this.src='./seiralab-logo.jpg';">
+            </div>
+
+            <!-- Live Wallpaper Mode Switcher (Test 3 Background Options) -->
+            <div class="bg-slate-900/80 backdrop-blur-md border border-slate-700/80 rounded-xl p-1.5 flex items-center space-x-1 text-[11px] text-slate-300 shadow-lg">
+                <span class="px-2 font-semibold text-teal-400 hidden sm:inline">Live Wallpaper:</span>
+                <button type="button" onclick="setWallpaperMode('network')" id="wpBtn-network" class="px-2.5 py-1 rounded-lg font-medium transition-colors bg-teal-600 text-white">1. Bio-Nodes</button>
+                <button type="button" onclick="setWallpaperMode('ecg')" id="wpBtn-ecg" class="px-2.5 py-1 rounded-lg font-medium transition-colors hover:bg-slate-800">2. ECG Pulse</button>
+                <button type="button" onclick="setWallpaperMode('static')" id="wpBtn-static" class="px-2.5 py-1 rounded-lg font-medium transition-colors hover:bg-slate-800">3. Static</button>
+            </div>
+        </div>
+
+        <!-- Center Login Card (Matches Sketch Layout) -->
+        <div class="relative z-10 flex-1 flex items-center justify-center px-4 py-6">
+            <div class="w-full max-w-md bg-slate-900/80 backdrop-blur-xl border border-teal-500/30 rounded-3xl p-8 shadow-2xl text-center relative overflow-hidden">
+                <!-- Subtle top glow bar -->
+                <div class="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-emerald-500 via-yellow-400 to-teal-500"></div>
+
+                <!-- Center Biomedical Technical Team Logo -->
+                <div class="w-28 h-28 sm:w-32 sm:h-32 mx-auto mb-5 rounded-full p-1 bg-gradient-to-tr from-emerald-500 via-teal-400 to-yellow-400 shadow-xl">
+                    <div class="w-full h-full rounded-full overflow-hidden bg-white flex items-center justify-center">
+                        <img src="./team.png.jpg" 
+                             alt="Biomedical Technical Team" 
+                             class="w-full h-full object-cover"
+                             onerror="this.onerror=null; this.src='./team.png';">
+                    </div>
+                </div>
+
+                <h2 class="text-xl font-bold text-white tracking-tight">Biomedical Technical Portal</h2>
+                <p class="text-xs text-slate-400 mt-1 mb-6">Select your access role and enter your authorization password</p>
+
+                <form onsubmit="submitPortalLogin(event)" class="space-y-5 text-left">
+                    <!-- BOX 1: LOGIN (ROLE CHOICES: Technical, Admin, Head) -->
+                    <div>
+                        <select id="portalRoleSelect" onchange="handlePortalRoleChange()" class="w-full bg-slate-950/90 border-2 border-slate-700 focus:border-teal-400 text-white font-semibold text-sm rounded-xl px-4 py-3.5 text-center focus:outline-none transition-colors cursor-pointer shadow-inner">
+                            <option value="Technical">Technical</option>
+                            <option value="MasterAdmin">Admin (MasterAdmin)</option>
+                            <option value="Head Technical">Head (Head Technical)</option>
+                        </select>
+                        <label class="block text-center text-xs font-bold uppercase tracking-widest text-teal-400 mt-1.5">Login</label>
+                    </div>
+
+                    <!-- BOX 2: PASSWORD INPUT -->
+                    <div id="portalPasswordContainer">
+                        <input type="password" id="portalPasswordInput" required placeholder="••••••••••••" class="w-full bg-slate-950/90 border-2 border-slate-700 focus:border-teal-400 text-white font-mono text-center text-base rounded-xl px-4 py-3 focus:outline-none transition-colors shadow-inner">
+                        <label class="block text-center text-xs font-bold uppercase tracking-widest text-teal-400 mt-1.5">Password</label>
+                    </div>
+
+                    <!-- Error Message Display -->
+                    <p id="portalLoginError" class="hidden text-xs font-semibold text-rose-400 text-center bg-rose-950/60 border border-rose-500/40 rounded-lg py-2 px-3"></p>
+
+                    <!-- Sign In Button -->
+                    <button type="submit" class="w-full py-3.5 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 text-white font-bold text-sm rounded-xl shadow-lg shadow-teal-900/50 transition-all transform active:scale-[0.99] cursor-pointer">
+                        Enter Seiralab System
+                    </button>
+                </form>
+
+                <!-- Visitor View-Only Quick Access -->
+                <div class="mt-6 pt-4 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
+                    <span>Hospital Client or Auditor?</span>
+                    <button type="button" onclick="loginAsVisitor()" class="text-yellow-400 hover:text-yellow-300 font-semibold underline cursor-pointer">
+                        Continue as Visitor (View Only) &rarr;
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bottom Status Footer -->
+        <div class="relative z-10 px-6 py-3 text-center text-[11px] text-slate-500 flex items-center justify-between max-w-7xl w-full mx-auto">
+            <span>Seiralab Incorporated &bull; Diagnostic &amp; Medical Equipment</span>
+            <span class="hidden sm:inline text-slate-400">Move mouse or touch screen to interact with live wallpaper</span>
+        </div>
+    </div>`;
+
+    document.body.insertAdjacentHTML('beforeend', portalHTML);
+    initLiveWallpaperCanvas();
+}
+
+// ============================================================================
+// 2. HTML5 CANVAS INTERACTIVE LIVE WALLPAPER ENGINE (3 MODES)
+// ============================================================================
+let mousePos = { x: -999, y: -999 };
+
+function setWallpaperMode(mode) {
+    wallpaperMode = mode;
+    localStorage.setItem('seiralab_wallpaper_mode', mode);
+    ['network', 'ecg', 'static'].forEach(m => {
+        const btn = document.getElementById(`wpBtn-${m}`);
+        if (btn) {
+            btn.className = m === mode
+                ? 'px-2.5 py-1 rounded-lg font-medium transition-colors bg-teal-600 text-white'
+                : 'px-2.5 py-1 rounded-lg font-medium transition-colors hover:bg-slate-800 text-slate-300';
+        }
+    });
+}
+
+function initLiveWallpaperCanvas() {
+    const canvas = document.getElementById('liveWallpaperCanvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+
+    setWallpaperMode(wallpaperMode);
+
+    function resize() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+    }
+    resize();
+    window.addEventListener('resize', resize);
+
+    window.addEventListener('mousemove', e => {
+        mousePos.x = e.clientX;
+        mousePos.y = e.clientY;
+    });
+    window.addEventListener('touchmove', e => {
+        if (e.touches[0]) {
+            mousePos.x = e.touches[0].clientX;
+            mousePos.y = e.touches[0].clientY;
+        }
+    });
+
+    // Create movable floating biomedical nodes
+    const particles = Array.from({ length: 55 }, () => ({
+        x: Math.random() * window.innerWidth,
+        y: Math.random() * window.innerHeight,
+        vx: (Math.random() - 0.5) * 1.1,
+        vy: (Math.random() - 0.5) * 1.1,
+        radius: Math.random() * 2.5 + 1.5,
+        color: Math.random() > 0.3 ? '#14b8a6' : '#facc15'
+    }));
+
+    let tick = 0;
+
+    function drawSideRibbonWaves(w, h) {
+        // Left & Right decorative vertical waves (Green, Yellow, Navy lines from your sketch)
+        const sideLines = [
+            { offset: 25, color: 'rgba(16, 185, 129, 0.45)', width: 2.5, speed: 0.02 },
+            { offset: 48, color: 'rgba(250, 204, 21, 0.40)', width: 2, speed: 0.025 },
+            { offset: 70, color: 'rgba(20, 184, 166, 0.30)', width: 1.5, speed: 0.015 }
+        ];
+
+        sideLines.forEach((line, idx) => {
+            // Left wave
+            ctx.beginPath();
+            ctx.strokeStyle = line.color;
+            ctx.lineWidth = line.width;
+            for (let y = 0; y <= h; y += 15) {
+                const waveX = line.offset + Math.sin(y * 0.012 + tick * line.speed + idx) * 14;
+                if (y === 0) ctx.moveTo(waveX, y);
+                else ctx.lineTo(waveX, y);
+            }
+            ctx.stroke();
+
+            // Right wave
+            ctx.beginPath();
+            ctx.strokeStyle = line.color;
+            ctx.lineWidth = line.width;
+            for (let y = 0; y <= h; y += 15) {
+                const waveX = (w - line.offset) + Math.cos(y * 0.012 + tick * line.speed + idx) * 14;
+                if (y === 0) ctx.moveTo(waveX, y);
+                else ctx.lineTo(waveX, y);
+            }
+            ctx.stroke();
+        });
+    }
+
+    function animate() {
+        const portal = document.getElementById('seiralabLoginPortal');
+        if (!portal || portal.classList.contains('hidden')) {
+            wallpaperAnimId = requestAnimationFrame(animate);
+            return;
+        }
+
+        const w = canvas.width;
+        const h = canvas.height;
+        tick++;
+
+        // Deep medical navy/slate gradient background
+        const grad = ctx.createRadialGradient(w / 2, h / 2, 50, w / 2, h / 2, Math.max(w, h) * 0.75);
+        grad.addColorStop(0, '#0f172a');
+        grad.addColorStop(1, '#020617');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, w, h);
+
+        // Always draw the sketch's left & right vertical accent waves
+        drawSideRibbonWaves(w, h);
+
+        if (wallpaperMode === 'network') {
+            particles.forEach((p, i) => {
+                p.x += p.vx;
+                p.y += p.vy;
+
+                if (p.x < 0 || p.x > w) p.vx *= -1;
+                if (p.y < 0 || p.y > h) p.vy *= -1;
+
+                // Interactive mouse repulsion/attraction
+                const dxMouse = mousePos.x - p.x;
+                const dyMouse = mousePos.y - p.y;
+                const distMouse = Math.sqrt(dxMouse * dxMouse + dyMouse * dyMouse);
+                if (distMouse < 160) {
+                    ctx.beginPath();
+                    ctx.strokeStyle = `rgba(250, 204, 21, ${1 - distMouse / 160})`;
+                    ctx.lineWidth = 1.2;
+                    ctx.moveTo(p.x, p.y);
+                    ctx.lineTo(mousePos.x, mousePos.y);
+                    ctx.stroke();
+                }
+
+                // Draw node
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+                ctx.fillStyle = p.color;
+                ctx.fill();
+
+                // Connect nearby biomedical nodes
+                for (let j = i + 1; j < particles.length; j++) {
+                    const p2 = particles[j];
+                    const dx = p.x - p2.x;
+                    const dy = p.y - p2.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    if (dist < 130) {
+                        ctx.beginPath();
+                        ctx.strokeStyle = `rgba(20, 184, 166, ${(1 - dist / 130) * 0.35})`;
+                        ctx.lineWidth = 1;
+                        ctx.moveTo(p.x, p.y);
+                        ctx.lineTo(p2.x, p2.y);
+                        ctx.stroke();
+                    }
+                }
+            });
+        } else if (wallpaperMode === 'ecg') {
+            // Animated ECG / Telemetry Waveform
+            ctx.beginPath();
+            ctx.strokeStyle = 'rgba(16, 185, 129, 0.5)';
+            ctx.lineWidth = 2;
+            const midY = h * 0.5;
+            for (let x = 0; x < w; x += 6) {
+                const phase = (x + tick * 4) % 260;
+                let yOffset = Math.sin((x + tick * 2) * 0.02) * 12;
+                if (phase > 110 && phase < 125) yOffset -= 65;
+                else if (phase >= 125 && phase < 140) yOffset += 45;
+                else if (phase >= 140 && phase < 160) yOffset -= 25;
+
+                if (x === 0) ctx.moveTo(x, midY + yOffset);
+                else ctx.lineTo(x, midY + yOffset);
+            }
+            ctx.stroke();
+        }
+
+        wallpaperAnimId = requestAnimationFrame(animate);
+    }
+
+    if (!wallpaperAnimId) {
+        animate();
+    }
+}
+
+function submitPortalLogin(event) {
+    event.preventDefault();
+    const role = document.getElementById('portalRoleSelect').value;
+    const typedPass = document.getElementById('portalPasswordInput').value.trim();
+    const errorEl = document.getElementById('portalLoginError');
+
+    const correctPass = ROLE_PASSWORDS[role];
+    if (typedPass === correctPass) {
+        errorEl.classList.add('hidden');
+        document.getElementById('portalPasswordInput').value = '';
+        sessionStorage.setItem('seiralab_active_session_role', role);
+
+        document.getElementById('seiralabLoginPortal')?.classList.add('hidden');
+        switchAccessRole(role, `Welcome, ${role}`, false);
+    } else {
+        errorEl.innerText = `Invalid password for ${role}. Please try again.`;
+        errorEl.classList.remove('hidden');
+        document.getElementById('portalPasswordInput').value = '';
+        document.getElementById('portalPasswordInput').focus();
+    }
+}
+
+function loginAsVisitor() {
+    sessionStorage.setItem('seiralab_active_session_role', 'Visitor');
+    document.getElementById('seiralabLoginPortal')?.classList.add('hidden');
+    switchAccessRole('Visitor', 'View Only', false);
+}
+
+function openFullScreenLoginPortal() {
+    buildFullScreenLoginPortal();
+    const portal = document.getElementById('seiralabLoginPortal');
+    if (portal) {
+        portal.classList.remove('hidden');
+        document.getElementById('portalLoginError')?.classList.add('hidden');
+        document.getElementById('portalPasswordInput').value = '';
+    }
+}
+
+// ============================================================================
+// 3. ROLE PERMISSIONS & PASSWORD AUTHENTICATION
 // ============================================================================
 function isVisitor(role) {
     return role === 'Visitor';
@@ -40,31 +356,8 @@ function isMasterAdminOnly(role) {
 }
 
 function ensureDynamicModalsExist() {
-    // 1. Ensure Password Modal Exists
-    if (!document.getElementById('rolePasswordModal')) {
-        const passModalHTML = `
-        <div id="rolePasswordModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
-            <div class="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200">
-                <div class="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
-                    <h3 id="rolePasswordPromptTitle" class="font-bold text-slate-900 text-base">Enter Password</h3>
-                    <button type="button" onclick="closeRolePasswordModal()" class="text-slate-400 hover:text-slate-600 p-1 rounded-lg">&times;</button>
-                </div>
-                <form onsubmit="verifyRolePassword(event)" class="space-y-4">
-                    <div>
-                        <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Authorization Password *</label>
-                        <input type="password" id="rolePasswordInput" required placeholder="Enter password..." class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
-                    </div>
-                    <div class="flex items-center justify-end space-x-2 pt-2">
-                        <button type="button" onclick="closeRolePasswordModal()" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium text-xs rounded-lg transition-colors">Cancel</button>
-                        <button type="submit" class="px-4 py-1.5 bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs rounded-lg transition-colors">Login</button>
-                    </div>
-                </form>
-            </div>
-        </div>`;
-        document.body.insertAdjacentHTML('beforeend', passModalHTML);
-    }
+    buildFullScreenLoginPortal();
 
-    // 2. Ensure Add Calibration Report Modal Exists
     if (!document.getElementById('addCalibrationModal')) {
         const calModalHTML = `
         <div id="addCalibrationModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
@@ -128,7 +421,7 @@ function showWelcomeBanner(roleName) {
 
     const welcomeLabel = roleName === 'MasterAdmin' ? 'Welcome, MasterAdmin!' :
                          roleName === 'Head Technical' ? 'Welcome, Head Technical!' :
-                         roleName === 'Technical' ? 'Welcome, Technical!' : 'Visitor Mode Active';
+                         roleName === 'Technical' ? 'Welcome, Technical!' : 'Visitor Mode (View Only)';
 
     const banner = document.createElement('div');
     banner.id = 'seiralabWelcomePopup';
@@ -168,62 +461,16 @@ function toggleRoleMenu(event) {
     if (menu) menu.classList.toggle('hidden');
 }
 
-let pendingRoleTarget = null;
-
 function requestSwitchRole(roleName, roleSubtitle) {
     document.getElementById('roleDropdownMenu')?.classList.add('hidden');
-    if (roleName === window.currentAccessRole) return;
-
-    const requiredPass = ROLE_PASSWORDS[roleName];
-    if (!requiredPass) {
-        switchAccessRole(roleName, roleSubtitle, false);
+    if (roleName === 'Visitor') {
+        loginAsVisitor();
         return;
     }
-
-    ensureDynamicModalsExist();
-    pendingRoleTarget = { name: roleName, subtitle: roleSubtitle };
-
-    const titleEl = document.getElementById('rolePasswordPromptTitle');
-    const inputEl = document.getElementById('rolePasswordInput');
-    const modalEl = document.getElementById('rolePasswordModal');
-
-    if (titleEl) titleEl.innerText = `Login as ${roleName}`;
-    if (inputEl) inputEl.value = '';
-    if (modalEl) {
-        modalEl.classList.remove('hidden');
-        setTimeout(() => inputEl?.focus(), 50);
-    }
-}
-
-function closeRolePasswordModal() {
-    document.getElementById('rolePasswordModal')?.classList.add('hidden');
-    pendingRoleTarget = null;
-}
-
-function verifyRolePassword(event) {
-    event.preventDefault();
-    const inputEl = document.getElementById('rolePasswordInput');
-    const typed = inputEl ? inputEl.value.trim() : '';
-    if (!pendingRoleTarget) return;
-
-    const targetName = pendingRoleTarget.name;
-    const targetSub = pendingRoleTarget.subtitle;
-    const correctPass = ROLE_PASSWORDS[targetName];
-
-    if (typed === correctPass) {
-        closeRolePasswordModal();
-        switchAccessRole(targetName, targetSub, false);
-    } else {
-        if (typeof showNotificationToast === 'function') {
-            showNotificationToast(`Incorrect password for ${targetName}`, true);
-        } else {
-            alert(`Incorrect password for ${targetName}`);
-        }
-        if (inputEl) {
-            inputEl.value = '';
-            inputEl.focus();
-        }
-    }
+    openFullScreenLoginPortal();
+    const select = document.getElementById('portalRoleSelect');
+    if (select) select.value = roleName;
+    setTimeout(() => document.getElementById('portalPasswordInput')?.focus(), 60);
 }
 
 function switchAccessRole(roleName, roleSubtitle, silent = false) {
@@ -265,7 +512,7 @@ window.addEventListener('click', function(e) {
 });
 
 // ============================================================================
-// 2. FUNCTIONAL NOTIFICATION CENTER (RED ARROW INDICATOR)
+// 4. FUNCTIONAL NOTIFICATION CENTER
 // ============================================================================
 function buildSystemNotifications() {
     const list = document.getElementById('notificationList');
@@ -275,7 +522,6 @@ function buildSystemNotifications() {
     const today = new Date();
     const alerts = [];
 
-    // 1. Check Equipment PM Overdue & Upcoming
     (window.equipmentList || []).forEach(eq => {
         const diffDays = Math.ceil((new Date(eq.nextDue) - today) / (1000 * 60 * 60 * 24));
         if (diffDays < 0) {
@@ -295,7 +541,6 @@ function buildSystemNotifications() {
         }
     });
 
-    // 2. Check Calibration Certificates Due
     (window.calibrationList || []).forEach(cal => {
         const diffDays = Math.ceil((new Date(cal.nextDue) - today) / (1000 * 60 * 60 * 24));
         if (diffDays <= 30) {
@@ -308,7 +553,6 @@ function buildSystemNotifications() {
         }
     });
 
-    // 3. Check Unreturned Biomed Office Tools
     (window.toolLogs || []).forEach(tool => {
         if (tool.status === 'Borrowed') {
             alerts.push({
@@ -320,7 +564,6 @@ function buildSystemNotifications() {
         }
     });
 
-    // Update red badge counter on bell icon
     if (badge) {
         if (alerts.length > 0) {
             badge.classList.remove('hidden');
@@ -361,20 +604,16 @@ function buildSystemNotifications() {
 
 function openNotificationModal() {
     buildSystemNotifications();
-    const modal = document.getElementById('notificationModal');
-    if (modal) modal.classList.remove('hidden');
+    document.getElementById('notificationModal')?.classList.remove('hidden');
 }
 
 function closeNotificationModal() {
-    const modal = document.getElementById('notificationModal');
-    if (modal) modal.classList.add('hidden');
+    document.getElementById('notificationModal')?.classList.add('hidden');
 }
 
 function jumpFromNotification(tabId) {
     closeNotificationModal();
-    if (typeof switchTab === 'function') {
-        switchTab(tabId);
-    }
+    if (typeof switchTab === 'function') switchTab(tabId);
 }
 
 window.openNotificationModal = openNotificationModal;
@@ -382,14 +621,13 @@ window.closeNotificationModal = closeNotificationModal;
 window.renderNotifications = buildSystemNotifications;
 
 // ============================================================================
-// 3. CALIBRATION REPORT: ADD MODAL (GREEN LINE) & EXPORT CSV (PINK LINE)
+// 5. CALIBRATION REPORT: ADD MODAL & EXPORT CSV
 // ============================================================================
 function upgradeCalibrationToolbarUI() {
     ensureDynamicModalsExist();
-    const calToolbar = document.querySelector('#calibration .flex.items-center.space-x-3');
+    const calToolbar = document.querySelector('#calibration .flex.items-center.space-x-3') || document.querySelector('#calibration .flex.flex-wrap.items-center.gap-3');
     if (!calToolbar) return;
 
-    // Rebuild toolbar with: [+ Add Calibration Report] [Export Calibration Data] [Print Calibration Report]
     if (!document.getElementById('btnAddCalibrationReport')) {
         calToolbar.innerHTML = `
             <button type="button" id="btnAddCalibrationReport" onclick="openAddCalibrationModal()" class="inline-flex items-center justify-center px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 font-medium text-sm shadow-sm transition-all space-x-2">
@@ -455,7 +693,7 @@ function renderCalibrationTable() {
 
 function openAddCalibrationModal() {
     if (isVisitor(window.currentAccessRole)) {
-        if (typeof showNotificationToast === 'function') showNotificationToast('Visitors have view-only access. Switch to Technical, Head Technical, or MasterAdmin.', true);
+        if (typeof showNotificationToast === 'function') showNotificationToast('Visitors have view-only access.', true);
         return;
     }
     ensureDynamicModalsExist();
@@ -490,20 +728,15 @@ async function saveCalibrationReport(event) {
     const nextDue = document.getElementById('calNextDue').value;
     const accuracy = document.getElementById('calAccuracy').value.trim();
 
-    const newReport = { id, eqName, serial, facility, calDate, nextDue, accuracy };
-    window.calibrationList.unshift(newReport);
+    window.calibrationList.unshift({ id, eqName, serial, facility, calDate, nextDue, accuracy });
     localStorage.setItem('seiralab_calibrations', JSON.stringify(window.calibrationList));
 
     closeAddCalibrationModal();
     renderCalibrationTable();
     buildSystemNotifications();
 
-    if (typeof showNotificationToast === 'function') {
-        showNotificationToast(`Calibration Report ${id} saved!`);
-    }
-    if (typeof pushToGitHub === 'function') {
-        await pushToGitHub(`Add Calibration Certificate ${id} for ${eqName} (${facility})`);
-    }
+    if (typeof showNotificationToast === 'function') showNotificationToast(`Calibration Report ${id} saved!`);
+    if (typeof pushToGitHub === 'function') await pushToGitHub(`Add Calibration Certificate ${id} for ${eqName}`);
 }
 
 function exportCalibrationDataCSV() {
@@ -515,9 +748,7 @@ function exportCalibrationDataCSV() {
     if (typeof downloadBlob === 'function') {
         downloadBlob(csv, `Seiralab_Calibration_Reports_${new Date().toISOString().split('T')[0]}.csv`, 'text/csv');
     }
-    if (typeof showNotificationToast === 'function') {
-        showNotificationToast("Exported Calibration Reports CSV!");
-    }
+    if (typeof showNotificationToast === 'function') showNotificationToast("Exported Calibration Reports CSV!");
 }
 
 function downloadCalibrationCert(certId) {
@@ -539,7 +770,7 @@ Standard Status   : ISO/IEC 17025 Traceable — PASSED
 }
 
 // ============================================================================
-// 4. BIOMED OFFICE TOOL & KIT LOGBOOK
+// 6. BIOMED OFFICE TOOL & KIT LOGBOOK
 // ============================================================================
 function formatTime12Hr(timeStr) {
     if (!timeStr) return '';
@@ -703,18 +934,47 @@ window.addEventListener('DOMContentLoaded', function() {
     ensureDynamicModalsExist();
     upgradeCalibrationToolbarUI();
 
-    document.querySelectorAll('#roleDropdownMenu button').forEach(btn => {
-        const sub = btn.querySelector('p:nth-child(2)');
-        if (sub) sub.remove();
-        const title = btn.querySelector('p:first-child') || btn.querySelector('span:first-child');
-        if (title) {
-            title.innerText = title.innerText.replace(/\s*\(.*?\)/g, '').trim();
-        }
-    });
+    // Clean role dropdown & add "Full Login Screen" option
+    const roleMenu = document.getElementById('roleDropdownMenu');
+    if (roleMenu) {
+        roleMenu.innerHTML = `
+            <div class="px-3 py-1.5 border-b border-slate-100">
+                <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Switch Access Level</p>
+            </div>
+            <button type="button" onclick="requestSwitchRole('Visitor', 'View Only')" class="w-full px-3 py-2 text-left text-xs hover:bg-teal-50 flex items-center justify-between group">
+                <span class="font-semibold text-slate-800 group-hover:text-teal-700">Visitor</span>
+                <span id="roleCheck-Visitor" class="w-2 h-2 rounded-full bg-transparent"></span>
+            </button>
+            <button type="button" onclick="requestSwitchRole('Technical', 'Welcome, Technical')" class="w-full px-3 py-2 text-left text-xs hover:bg-teal-50 flex items-center justify-between group">
+                <span class="font-semibold text-slate-800 group-hover:text-teal-700">Technical</span>
+                <span id="roleCheck-Technical" class="w-2 h-2 rounded-full bg-transparent"></span>
+            </button>
+            <button type="button" onclick="requestSwitchRole('Head Technical', 'Welcome, Head Technical')" class="w-full px-3 py-2 text-left text-xs hover:bg-teal-50 flex items-center justify-between group">
+                <span class="font-semibold text-slate-800 group-hover:text-teal-700">Head Technical</span>
+                <span id="roleCheck-Head" class="w-2 h-2 rounded-full bg-transparent"></span>
+            </button>
+            <button type="button" onclick="requestSwitchRole('MasterAdmin', 'Welcome, MasterAdmin')" class="w-full px-3 py-2 text-left text-xs hover:bg-teal-50 flex items-center justify-between group">
+                <span class="font-semibold text-slate-800 group-hover:text-teal-700">MasterAdmin</span>
+                <span id="roleCheck-MasterAdmin" class="w-2 h-2 rounded-full bg-transparent"></span>
+            </button>
+            <div class="border-t border-slate-100 mt-1 pt-1">
+                <button type="button" onclick="openFullScreenLoginPortal()" class="w-full px-3 py-2 text-left text-xs font-bold text-teal-600 hover:bg-teal-50 flex items-center justify-between">
+                    <span>Lock / Full Login Screen</span>
+                    <span>&rarr;</span>
+                </button>
+            </div>
+        `;
+    }
 
-    const savedRole = localStorage.getItem('seiralab_access_role') || 'Visitor';
-    const savedSub = localStorage.getItem('seiralab_access_subtitle') || 'View Only';
-    switchAccessRole(savedRole, savedSub, true);
+    // Show the full-screen Login Portal on fresh visit, or restore active session
+    const activeSessionRole = sessionStorage.getItem('seiralab_active_session_role');
+    if (activeSessionRole) {
+        document.getElementById('seiralabLoginPortal')?.classList.add('hidden');
+        switchAccessRole(activeSessionRole, activeSessionRole === 'Visitor' ? 'View Only' : `Welcome, ${activeSessionRole}`, true);
+    } else {
+        document.getElementById('seiralabLoginPortal')?.classList.remove('hidden');
+    }
+
     renderCalibrationTable();
     renderToolLogsTable();
     buildSystemNotifications();
