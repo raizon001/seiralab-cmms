@@ -1,10 +1,10 @@
 // ============================================================================
-// SEIRALAB CMMS - FEATURES.JS (NOTIFICATIONS, CALIBRATION & TOOL LOGBOOK)
+// SEIRALAB CMMS - FEATURES.JS (NOTIFICATIONS, 3-BUTTON CALIBRATION ROW & TOOLS)
 // ============================================================================
 
 const DEFAULT_TOOL_LOGS = [
     { id: 501, borrower: "Eng. Barzce Barcelona", toolName: "Fluke ESA612 Electrical Safety Analyzer", toolCode: "TL-SL-001", destination: "Cebu City Medical Center — ICU PM", borrowDate: "2026-10-30", borrowTime: "08:30", returnDateTime: "", status: "Borrowed" },
-    { id: 502, borrower: "Eng. Kyle THE GREAT", toolName: "Digital Optical Tachometer & Pipette Calibrator", toolCode: "TL-SL-004", destination: "God Care Medical Diagnostic — Centrifuge PM", borrowDate: "2026-10-29", borrowTime: "09:15", returnDateTime: "2026-10-29 (5:40 PM)", status: "Returned" }
+    { id: 502, borrower: "Eng. Marcus Vance", toolName: "Digital Optical Tachometer & Pipette Calibrator", toolCode: "TL-SL-004", destination: "God Care Medical Diagnostic — Centrifuge PM", borrowDate: "2026-10-29", borrowTime: "09:15", returnDateTime: "2026-10-29 (5:40 PM)", status: "Returned" }
 ];
 
 const DEFAULT_CALIBRATION_LIST = [
@@ -121,8 +121,35 @@ window.openNotificationModal = openNotificationModal;
 window.closeNotificationModal = closeNotificationModal;
 window.renderNotifications = buildSystemNotifications;
 
-// 2. CALIBRATION REPORTS
+// 2. PINK INDICATOR: 3 SIDE-BY-SIDE CALIBRATION BUTTONS IN ONE HORIZONTAL ROW
+function upgradeCalibrationToolbarUI() {
+    const calHeader = document.querySelector('#calibration > div:first-child');
+    if (!calHeader) return;
+
+    let calToolbar = calHeader.querySelector('div:nth-child(2)');
+    if (!calToolbar) return;
+
+    // Force all 3 buttons into a single side-by-side horizontal row (no wrapping onto 2 lines)
+    calToolbar.className = 'flex items-center space-x-2.5 shrink-0 overflow-x-auto pb-1 sm:pb-0';
+    calToolbar.innerHTML = `
+        <button type="button" id="btnAddCalibrationReport" onclick="openAddCalibrationModal()" class="inline-flex items-center justify-center px-3.5 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 font-medium text-xs sm:text-sm shadow-xs transition-all space-x-1.5 whitespace-nowrap shrink-0">
+            <i data-lucide="plus" class="w-4 h-4"></i>
+            <span>Add Calibration Report</span>
+        </button>
+        <button type="button" id="btnExportCalibrationData" onclick="exportCalibrationDataCSV()" class="inline-flex items-center justify-center px-3.5 py-2 bg-white border border-teal-600 text-teal-700 rounded-lg hover:bg-teal-50 font-medium text-xs sm:text-sm shadow-xs transition-all space-x-1.5 whitespace-nowrap shrink-0">
+            <i data-lucide="download" class="w-4 h-4"></i>
+            <span>Export Calibration Data</span>
+        </button>
+        <button type="button" onclick="window.print()" class="inline-flex items-center justify-center px-3.5 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-900 font-medium text-xs sm:text-sm shadow-xs transition-all space-x-1.5 whitespace-nowrap shrink-0">
+            <i data-lucide="printer" class="w-4 h-4"></i>
+            <span>Print Calibration Report</span>
+        </button>
+    `;
+    if (window.lucide) lucide.createIcons();
+}
+
 function renderCalibrationTable() {
+    upgradeCalibrationToolbarUI();
     const tbody = document.getElementById('calibrationTableBody');
     if (!tbody) return;
 
@@ -167,7 +194,7 @@ function renderCalibrationTable() {
 
 function openAddCalibrationModal() {
     if (isVisitor(window.currentAccessRole)) {
-        if (typeof showNotificationToast === 'function') showNotificationToast('Visitors have view-only access.', true);
+        if (typeof showNotificationToast === 'function') showNotificationToast('Visitors have view-only access. Click Sign In at the top right.', true);
         return;
     }
     document.getElementById('addCalibrationForm')?.reset();
@@ -390,6 +417,7 @@ window.switchTab = function(tabId) {
 };
 
 window.addEventListener('DOMContentLoaded', function() {
+    upgradeCalibrationToolbarUI();
     renderCalibrationTable();
     renderToolLogsTable();
     buildSystemNotifications();
