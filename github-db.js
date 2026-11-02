@@ -89,7 +89,8 @@ function saveToLocalCache() {
     if (window.currentFileSHA) localStorage.setItem('seiralab_file_sha', window.currentFileSHA);
 }
 
-const res = await fetch(ghConfig.proxyUrl, {
+async function syncFromGitHub() {
+    const res = await fetch(ghConfig.proxyUrl, {
     headers: { 'X-Seiralab-Client': 'ATLAS-v1' },
     credentials: 'same-origin'
 });
@@ -152,7 +153,10 @@ const res = await fetch(ghConfig.proxyUrl, {
     }
 }
 
-const res = await fetch(ghConfig.proxyUrl, {
+async function pushToGitHub(commitMessage = 'Update Seiralab records') {
+    saveToLocalCache();
+
+    const res = await fetch(ghConfig.proxyUrl, {
     method: 'POST',
     credentials: 'same-origin',
     headers: {
