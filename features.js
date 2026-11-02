@@ -1,10 +1,11 @@
 // ============================================================================
-// SEIRALAB CMMS - FEATURES.JS (NOTIFICATIONS, 3-BUTTON CALIBRATION ROW & TOOLS)
+// SEIRALAB CMMS - FEATURES.JS
+// NOTIFICATIONS + CALIBRATION (ADD/EDIT/DELETE) + TOOL LOGBOOK (ADD/EDIT/DELETE)
 // ============================================================================
 
 const DEFAULT_TOOL_LOGS = [
     { id: 501, borrower: "Eng. Barzce Barcelona", toolName: "Fluke ESA612 Electrical Safety Analyzer", toolCode: "TL-SL-001", destination: "Cebu City Medical Center — ICU PM", borrowDate: "2026-10-30", borrowTime: "08:30", returnDateTime: "", status: "Borrowed" },
-    { id: 502, borrower: "Eng. Marcus Vance", toolName: "Digital Optical Tachometer & Pipette Calibrator", toolCode: "TL-SL-004", destination: "God Care Medical Diagnostic — Centrifuge PM", borrowDate: "2026-10-29", borrowTime: "09:15", returnDateTime: "2026-10-29 (5:40 PM)", status: "Returned" }
+    { id: 502, borrower: "Eng. Kyle the GREAT", toolName: "Digital Optical Tachometer & Pipette Calibrator", toolCode: "TL-SL-004", destination: "God Care Medical Diagnostic — Centrifuge PM", borrowDate: "2026-10-29", borrowTime: "09:15", returnDateTime: "2026-10-29 (5:40 PM)", status: "Returned" }
 ];
 
 const DEFAULT_CALIBRATION_LIST = [
@@ -15,7 +16,136 @@ const DEFAULT_CALIBRATION_LIST = [
 window.toolLogs = JSON.parse(localStorage.getItem('seiralab_tool_logs')) || DEFAULT_TOOL_LOGS;
 window.calibrationList = JSON.parse(localStorage.getItem('seiralab_calibrations')) || DEFAULT_CALIBRATION_LIST;
 
+function isVisitorMode() {
+    const role = window.currentAccessRole || sessionStorage.getItem('seiralab_active_session_role') || localStorage.getItem('seiralab_access_role') || 'Visitor';
+    return !role || role === 'Visitor';
+}
+
+// ============================================================================
+// 0. SELF-HEALING MODALS (Guarantees Borrow Tool & Calibration Modals Always Open)
+// ============================================================================
+function ensureFeatureModalsExist() {
+    // 1. Ensure Borrow / Edit Tool Modal Exists in DOM
+    if (!document.getElementById('borrowToolModal')) {
+        const toolModalHTML = `
+        <div id="borrowToolModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
+            <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
+                <div class="flex items-center justify-between pb-4 border-b border-slate-100">
+                    <h3 id="borrowToolModalTitle" class="font-bold text-slate-900 text-lg flex items-center space-x-2">
+                        <i data-lucide="wrench" class="w-5 h-5 text-teal-600"></i>
+                        <span>Borrow Tool / Test Kit from Biomed Office</span>
+                    </h3>
+                    <button type="button" onclick="closeBorrowToolModal()" class="text-slate-400 hover:text-slate-600 p-1 rounded-lg">
+                        <i data-lucide="x" class="w-5 h-5"></i>
+                    </button>
+                </div>
+                <form id="borrowToolForm" onsubmit="saveToolBorrow(event)" class="space-y-4 pt-4">
+                    <input type="hidden" id="editToolLogId" value="">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Borrower Name (Engineer / Staff) *</label>
+                        <input type="text" id="toolBorrower" required placeholder="e.g., Eng. Barzce Barcelona" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Tool / Kit Name *</label>
+                            <input type="text" id="toolName" required placeholder="e.g., Fluke 87V Digital Multimeter" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Tool ID / Serial No. *</label>
+                            <input type="text" id="toolCode" required placeholder="e.g., TL-SL-004" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Destination Hospital / Lab &amp; Purpose *</label>
+                        <input type="text" id="toolDestination" required placeholder="e.g., Cebu City Medical Center - Analyzer Calibration" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Date Borrowed *</label>
+                            <input type="date" id="toolBorrowDate" required class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Time Borrowed *</label>
+                            <input type="time" id="toolBorrowTime" required class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                        </div>
+                    </div>
+                    <div class="pt-4 flex items-center justify-end space-x-3">
+                        <button type="button" onclick="closeBorrowToolModal()" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium text-sm rounded-lg transition-colors">Cancel</button>
+                        <button type="submit" id="borrowToolSubmitBtn" class="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white font-medium text-sm rounded-lg transition-colors">Record Check-Out</button>
+                    </div>
+                </form>
+            </div>
+        </div>`;
+        document.body.insertAdjacentHTML('beforeend', toolModalHTML);
+    } else if (!document.getElementById('editToolLogId')) {
+        // Upgrade existing modal if hidden edit input is not there yet
+        document.getElementById('borrowToolForm')?.insertAdjacentHTML('afterbegin', '<input type="hidden" id="editToolLogId" value="">');
+    }
+
+    // 2. Ensure Add / Edit Calibration Report Modal Exists in DOM
+    if (!document.getElementById('addCalibrationModal')) {
+        const calModalHTML = `
+        <div id="addCalibrationModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
+            <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
+                <div class="flex items-center justify-between pb-4 border-b border-slate-100">
+                    <h3 id="calibrationModalTitle" class="font-bold text-slate-900 text-lg flex items-center space-x-2">
+                        <i data-lucide="file-check-2" class="w-5 h-5 text-teal-600"></i>
+                        <span>Add Calibration Report</span>
+                    </h3>
+                    <button type="button" onclick="closeAddCalibrationModal()" class="text-slate-400 hover:text-slate-600 p-1 rounded-lg">
+                        <i data-lucide="x" class="w-5 h-5"></i>
+                    </button>
+                </div>
+                <form id="addCalibrationForm" onsubmit="saveCalibrationReport(event)" class="space-y-4 pt-4">
+                    <input type="hidden" id="editCalOriginalId" value="">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Certificate ID *</label>
+                            <input type="text" id="calCertId" required placeholder="e.g., CERT-2026-9001" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Serial Number *</label>
+                            <input type="text" id="calSerial" required placeholder="e.g., AS24B05160" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Equipment Name &amp; Model *</label>
+                        <input type="text" id="calEqName" required placeholder="e.g., Flexor Chemistry Analyzer (AB-380)" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Hospital / Laboratory Facility *</label>
+                        <input type="text" id="calFacility" required placeholder="e.g., Cebu City Medical Center" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Calibration Date *</label>
+                            <input type="date" id="calDate" required class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Next Due Date *</label>
+                            <input type="date" id="calNextDue" required class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Accuracy / Error Margin Result *</label>
+                        <input type="text" id="calAccuracy" required placeholder="e.g., ± 0.5% Absorbance (Pass)" value="± 0.5% Tolerance (Pass)" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                    </div>
+                    <div class="pt-4 flex items-center justify-end space-x-3">
+                        <button type="button" onclick="closeAddCalibrationModal()" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium text-sm rounded-lg transition-colors">Cancel</button>
+                        <button type="submit" id="calSubmitBtn" class="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white font-medium text-sm rounded-lg transition-colors">Save Calibration Report</button>
+                    </div>
+                </form>
+            </div>
+        </div>`;
+        document.body.insertAdjacentHTML('beforeend', calModalHTML);
+    } else if (!document.getElementById('editCalOriginalId')) {
+        document.getElementById('addCalibrationForm')?.insertAdjacentHTML('afterbegin', '<input type="hidden" id="editCalOriginalId" value="">');
+    }
+}
+
+// ============================================================================
 // 1. NOTIFICATION CENTER
+// ============================================================================
 function buildSystemNotifications() {
     const list = document.getElementById('notificationList');
     const badge = document.getElementById('notificationBadge');
@@ -121,15 +251,17 @@ window.openNotificationModal = openNotificationModal;
 window.closeNotificationModal = closeNotificationModal;
 window.renderNotifications = buildSystemNotifications;
 
-// 2. PINK INDICATOR: 3 SIDE-BY-SIDE CALIBRATION BUTTONS IN ONE HORIZONTAL ROW
+// ============================================================================
+// 2. CALIBRATION REPORTS (WITH ADD, EDIT, DELETE & PDF DOWNLOAD)
+// ============================================================================
 function upgradeCalibrationToolbarUI() {
+    ensureFeatureModalsExist();
     const calHeader = document.querySelector('#calibration > div:first-child');
     if (!calHeader) return;
 
     let calToolbar = calHeader.querySelector('div:nth-child(2)');
     if (!calToolbar) return;
 
-    // Force all 3 buttons into a single side-by-side horizontal row (no wrapping onto 2 lines)
     calToolbar.className = 'flex items-center space-x-2.5 shrink-0 overflow-x-auto pb-1 sm:pb-0';
     calToolbar.innerHTML = `
         <button type="button" id="btnAddCalibrationReport" onclick="openAddCalibrationModal()" class="inline-flex items-center justify-center px-3.5 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 font-medium text-xs sm:text-sm shadow-xs transition-all space-x-1.5 whitespace-nowrap shrink-0">
@@ -172,9 +304,21 @@ function renderCalibrationTable() {
         return;
     }
 
+    const isVis = isVisitorMode();
+
     window.calibrationList.slice(0, 100).forEach(item => {
         const diffDays = Math.ceil((new Date(item.nextDue) - today) / (1000 * 60 * 60 * 24));
         const dueColor = diffDays < 0 ? 'text-rose-600 font-semibold' : (diffDays <= 30 ? 'text-amber-600 font-semibold' : 'text-emerald-600 font-medium');
+        const safeId = String(item.id).replace(/'/g, "\\'");
+
+        const editDeleteBtns = isVis ? '' : `
+            <button type="button" onclick="openEditCalibrationModal('${safeId}')" class="p-1.5 bg-slate-100 hover:bg-teal-50 text-slate-700 hover:text-teal-700 rounded-lg transition-colors" title="Edit Calibration Report">
+                <i data-lucide="edit-3" class="w-4 h-4"></i>
+            </button>
+            <button type="button" onclick="deleteCalibrationReport('${safeId}')" class="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg transition-colors" title="Delete Calibration Report">
+                <i data-lucide="trash-2" class="w-4 h-4"></i>
+            </button>
+        `;
 
         tbody.innerHTML += `
             <tr class="hover:bg-slate-50/50 transition-colors">
@@ -185,19 +329,31 @@ function renderCalibrationTable() {
                 <td class="p-4 ${dueColor}">${item.nextDue}</td>
                 <td class="p-4 text-slate-600">${item.accuracy}</td>
                 <td class="p-4 text-right">
-                    <button onclick="downloadCalibrationCert('${item.id}')" class="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded font-medium transition-colors">Download PDF</button>
+                    <div class="inline-flex items-center justify-end space-x-1.5">
+                        <button type="button" onclick="downloadCalibrationCert('${safeId}')" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-medium text-xs transition-colors">
+                            Download PDF
+                        </button>
+                        ${editDeleteBtns}
+                    </div>
                 </td>
             </tr>
         `;
     });
+    if (window.lucide) lucide.createIcons();
 }
 
 function openAddCalibrationModal() {
-    if (isVisitor(window.currentAccessRole)) {
-        if (typeof showNotificationToast === 'function') showNotificationToast('Visitors have view-only access. Click Sign In at the top right.', true);
+    if (isVisitorMode()) {
+        if (typeof showNotificationToast === 'function') showNotificationToast('Visitors have view-only access. Please Sign In.', true);
         return;
     }
+    ensureFeatureModalsExist();
     document.getElementById('addCalibrationForm')?.reset();
+
+    const titleEl = document.getElementById('calibrationModalTitle');
+    if (titleEl) titleEl.innerHTML = `<i data-lucide="file-check-2" class="w-5 h-5 text-teal-600"></i><span>Add Calibration Report</span>`;
+
+    document.getElementById('editCalOriginalId').value = '';
 
     const today = new Date();
     const nextSixMonths = new Date();
@@ -210,6 +366,32 @@ function openAddCalibrationModal() {
     document.getElementById('calAccuracy').value = "± 0.5% Tolerance (Pass)";
 
     document.getElementById('addCalibrationModal')?.classList.remove('hidden');
+    if (window.lucide) lucide.createIcons();
+}
+
+function openEditCalibrationModal(certId) {
+    if (isVisitorMode()) {
+        if (typeof showNotificationToast === 'function') showNotificationToast('Visitors have view-only access.', true);
+        return;
+    }
+    ensureFeatureModalsExist();
+    const item = window.calibrationList.find(c => String(c.id) === String(certId));
+    if (!item) return;
+
+    const titleEl = document.getElementById('calibrationModalTitle');
+    if (titleEl) titleEl.innerHTML = `<i data-lucide="edit-3" class="w-5 h-5 text-teal-600"></i><span>Edit Calibration Report</span>`;
+
+    document.getElementById('editCalOriginalId').value = item.id;
+    document.getElementById('calCertId').value = item.id;
+    document.getElementById('calSerial').value = item.serial;
+    document.getElementById('calEqName').value = item.eqName;
+    document.getElementById('calFacility').value = item.facility;
+    document.getElementById('calDate').value = item.calDate;
+    document.getElementById('calNextDue').value = item.nextDue;
+    document.getElementById('calAccuracy').value = item.accuracy;
+
+    document.getElementById('addCalibrationModal')?.classList.remove('hidden');
+    if (window.lucide) lucide.createIcons();
 }
 
 function closeAddCalibrationModal() {
@@ -218,8 +400,9 @@ function closeAddCalibrationModal() {
 
 async function saveCalibrationReport(event) {
     event.preventDefault();
-    if (isVisitor(window.currentAccessRole)) return;
+    if (isVisitorMode()) return;
 
+    const originalId = document.getElementById('editCalOriginalId')?.value || '';
     const id = document.getElementById('calCertId').value.trim();
     const serial = document.getElementById('calSerial').value.trim();
     const eqName = document.getElementById('calEqName').value.trim();
@@ -228,15 +411,46 @@ async function saveCalibrationReport(event) {
     const nextDue = document.getElementById('calNextDue').value;
     const accuracy = document.getElementById('calAccuracy').value.trim();
 
-    window.calibrationList.unshift({ id, eqName, serial, facility, calDate, nextDue, accuracy });
-    localStorage.setItem('seiralab_calibrations', JSON.stringify(window.calibrationList));
+    let commitAction = '';
+    if (originalId) {
+        const existing = window.calibrationList.find(c => String(c.id) === String(originalId));
+        if (existing) {
+            Object.assign(existing, { id, eqName, serial, facility, calDate, nextDue, accuracy });
+            commitAction = `Update Calibration Certificate ${id} (${eqName})`;
+        }
+    } else {
+        window.calibrationList.unshift({ id, eqName, serial, facility, calDate, nextDue, accuracy });
+        commitAction = `Add Calibration Certificate ${id} (${eqName})`;
+    }
 
+    localStorage.setItem('seiralab_calibrations', JSON.stringify(window.calibrationList));
     closeAddCalibrationModal();
     renderCalibrationTable();
     buildSystemNotifications();
 
-    if (typeof showNotificationToast === 'function') showNotificationToast(`Calibration Report ${id} saved!`);
-    if (typeof pushToGitHub === 'function') await pushToGitHub(`Add Calibration Certificate ${id} for ${eqName}`);
+    if (typeof showNotificationToast === 'function') {
+        showNotificationToast(originalId ? `Updated Calibration ${id}!` : `Saved Calibration ${id}!`);
+    }
+    if (typeof pushToGitHub === 'function') await pushToGitHub(commitAction);
+}
+
+async function deleteCalibrationReport(certId) {
+    if (isVisitorMode()) {
+        if (typeof showNotificationToast === 'function') showNotificationToast('Visitors have view-only access.', true);
+        return;
+    }
+    const target = window.calibrationList.find(c => String(c.id) === String(certId));
+    if (!target) return;
+
+    if (confirm(`Delete calibration report "${target.id}" (${target.eqName})?`)) {
+        window.calibrationList = window.calibrationList.filter(c => String(c.id) !== String(certId));
+        localStorage.setItem('seiralab_calibrations', JSON.stringify(window.calibrationList));
+        renderCalibrationTable();
+        buildSystemNotifications();
+
+        if (typeof showNotificationToast === 'function') showNotificationToast(`Deleted Calibration ${target.id}`);
+        if (typeof pushToGitHub === 'function') await pushToGitHub(`Delete Calibration Certificate ${target.id}`);
+    }
 }
 
 function exportCalibrationDataCSV() {
@@ -252,7 +466,7 @@ function exportCalibrationDataCSV() {
 }
 
 function downloadCalibrationCert(certId) {
-    const item = window.calibrationList.find(c => c.id === certId);
+    const item = window.calibrationList.find(c => String(c.id) === String(certId));
     if (!item) return;
     const content = `=========================================================
 SEIRALAB INCORPORATED - OFFICIAL CALIBRATION CERTIFICATE
@@ -269,7 +483,9 @@ Standard Status   : ISO/IEC 17025 Traceable — PASSED
     if (typeof downloadBlob === 'function') downloadBlob(content, `Seiralab_Calibration_${item.id}.txt`, 'text/plain');
 }
 
-// 3. BIOMED OFFICE TOOL & KIT LOGBOOK
+// ============================================================================
+// 3. BIOMED OFFICE TOOL & KIT LOGBOOK (WITH BORROW, EDIT, DELETE & RETURN)
+// ============================================================================
 function formatTime12Hr(timeStr) {
     if (!timeStr) return '';
     const parts = timeStr.split(':');
@@ -282,6 +498,7 @@ function formatTime12Hr(timeStr) {
 }
 
 function renderToolLogsTable() {
+    ensureFeatureModalsExist();
     const tbody = document.getElementById('toolLogsTableBody');
     if (!tbody) return;
 
@@ -310,17 +527,30 @@ function renderToolLogsTable() {
         return;
     }
 
-    const isVis = isVisitor(window.currentAccessRole);
+    const isVis = isVisitorMode();
     filtered.forEach(log => {
         const statusBadge = log.status === 'Borrowed'
             ? `<span class="px-2.5 py-1 bg-amber-100 text-amber-800 rounded-full text-xs font-semibold inline-flex items-center space-x-1.5"><span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span><span>Borrowed (Out)</span></span>`
             : `<span class="px-2.5 py-1 bg-emerald-100 text-emerald-700 rounded-full text-xs font-semibold inline-flex items-center space-x-1.5"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span><span>Returned</span></span>`;
 
-        const actionBtns = isVis ? `<span class="text-xs text-slate-400 italic">View Only</span>` : (
-            log.status === 'Borrowed'
-                ? `<button onclick="markToolReturned(${log.id})" class="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-xs font-medium transition-colors shadow-xs">Mark Returned</button>`
-                : `<span class="text-xs text-slate-400 font-medium">Cleared</span>`
-        );
+        let actionBtns = `<span class="text-xs text-slate-400 italic">View Only</span>`;
+        if (!isVis) {
+            const returnBtn = log.status === 'Borrowed'
+                ? `<button type="button" onclick="markToolReturned(${log.id})" class="px-2.5 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-xs font-medium transition-colors shadow-xs">Mark Returned</button>`
+                : `<span class="px-2 py-1 text-xs text-slate-400 font-medium">Cleared</span>`;
+
+            actionBtns = `
+                <div class="inline-flex items-center justify-end space-x-1.5">
+                    ${returnBtn}
+                    <button type="button" onclick="openEditToolModal(${log.id})" class="p-1.5 bg-slate-100 hover:bg-teal-50 text-slate-700 hover:text-teal-700 rounded-lg transition-colors" title="Edit Tool Log">
+                        <i data-lucide="edit-3" class="w-4 h-4"></i>
+                    </button>
+                    <button type="button" onclick="deleteToolLog(${log.id})" class="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg transition-colors" title="Delete Tool Log">
+                        <i data-lucide="trash-2" class="w-4 h-4"></i>
+                    </button>
+                </div>
+            `;
+        }
 
         tbody.innerHTML += `
             <tr class="hover:bg-slate-50/50 transition-colors">
@@ -330,22 +560,61 @@ function renderToolLogsTable() {
                 <td class="p-4 text-xs font-medium text-slate-800">${log.borrowDate}<br><span class="text-teal-600 font-semibold">${formatTime12Hr(log.borrowTime)}</span></td>
                 <td class="p-4 text-xs text-slate-600">${log.returnDateTime || '<span class="text-amber-600 italic">Still in field</span>'}</td>
                 <td class="p-4">${statusBadge}</td>
-                <td class="p-4 text-right space-x-2">${actionBtns}</td>
+                <td class="p-4 text-right">${actionBtns}</td>
             </tr>
         `;
     });
+    if (window.lucide) lucide.createIcons();
 }
 
 function openBorrowToolModal() {
-    if (isVisitor(window.currentAccessRole)) {
-        if (typeof showNotificationToast === 'function') showNotificationToast('Visitors have view-only access.', true);
+    if (isVisitorMode()) {
+        if (typeof showNotificationToast === 'function') showNotificationToast('Visitors have view-only access. Please Sign In.', true);
         return;
     }
+    ensureFeatureModalsExist();
     document.getElementById('borrowToolForm')?.reset();
+
+    const titleEl = document.getElementById('borrowToolModalTitle');
+    if (titleEl) titleEl.innerHTML = `<i data-lucide="wrench" class="w-5 h-5 text-teal-600"></i><span>Borrow Tool / Test Kit from Biomed Office</span>`;
+
+    const submitBtn = document.getElementById('borrowToolSubmitBtn');
+    if (submitBtn) submitBtn.innerText = 'Record Check-Out';
+
+    document.getElementById('editToolLogId').value = '';
+
     const now = new Date();
     document.getElementById('toolBorrowDate').value = now.toISOString().split('T')[0];
     document.getElementById('toolBorrowTime').value = now.toTimeString().slice(0, 5);
     document.getElementById('borrowToolModal')?.classList.remove('hidden');
+    if (window.lucide) lucide.createIcons();
+}
+
+function openEditToolModal(logId) {
+    if (isVisitorMode()) {
+        if (typeof showNotificationToast === 'function') showNotificationToast('Visitors have view-only access.', true);
+        return;
+    }
+    ensureFeatureModalsExist();
+    const log = window.toolLogs.find(t => t.id == logId);
+    if (!log) return;
+
+    const titleEl = document.getElementById('borrowToolModalTitle');
+    if (titleEl) titleEl.innerHTML = `<i data-lucide="edit-3" class="w-5 h-5 text-teal-600"></i><span>Edit Borrowed Tool / Kit Record</span>`;
+
+    const submitBtn = document.getElementById('borrowToolSubmitBtn');
+    if (submitBtn) submitBtn.innerText = 'Save Changes';
+
+    document.getElementById('editToolLogId').value = log.id;
+    document.getElementById('toolBorrower').value = log.borrower;
+    document.getElementById('toolName').value = log.toolName;
+    document.getElementById('toolCode').value = log.toolCode;
+    document.getElementById('toolDestination').value = log.destination;
+    document.getElementById('toolBorrowDate').value = log.borrowDate;
+    document.getElementById('toolBorrowTime').value = log.borrowTime;
+
+    document.getElementById('borrowToolModal')?.classList.remove('hidden');
+    if (window.lucide) lucide.createIcons();
 }
 
 function closeBorrowToolModal() {
@@ -354,8 +623,9 @@ function closeBorrowToolModal() {
 
 async function saveToolBorrow(event) {
     event.preventDefault();
-    if (isVisitor(window.currentAccessRole)) return;
+    if (isVisitorMode()) return;
 
+    const editId = document.getElementById('editToolLogId')?.value || '';
     const borrower = document.getElementById('toolBorrower').value.trim();
     const toolName = document.getElementById('toolName').value.trim();
     const toolCode = document.getElementById('toolCode').value.trim();
@@ -363,21 +633,53 @@ async function saveToolBorrow(event) {
     const borrowDate = document.getElementById('toolBorrowDate').value;
     const borrowTime = document.getElementById('toolBorrowTime').value;
 
-    window.toolLogs.unshift({
-        id: Date.now(), borrower, toolName, toolCode, destination, borrowDate, borrowTime, returnDateTime: "", status: "Borrowed"
-    });
+    let commitMsg = '';
+    if (editId) {
+        const existing = window.toolLogs.find(t => t.id == editId);
+        if (existing) {
+            Object.assign(existing, { borrower, toolName, toolCode, destination, borrowDate, borrowTime });
+            commitMsg = `Update Tool Log: ${toolName} (${toolCode}) by ${borrower}`;
+        }
+    } else {
+        window.toolLogs.unshift({
+            id: Date.now(), borrower, toolName, toolCode, destination, borrowDate, borrowTime, returnDateTime: "", status: "Borrowed"
+        });
+        commitMsg = `Tool Check-Out: ${toolName} (${toolCode}) by ${borrower}`;
+    }
+
     localStorage.setItem('seiralab_tool_logs', JSON.stringify(window.toolLogs));
     closeBorrowToolModal();
     renderToolLogsTable();
     buildSystemNotifications();
 
-    if (typeof showNotificationToast === 'function') showNotificationToast(`Logged out ${toolName} to ${borrower}`);
-    if (typeof pushToGitHub === 'function') await pushToGitHub(`Tool Check-Out: ${toolName} (${toolCode}) by ${borrower}`);
+    if (typeof showNotificationToast === 'function') {
+        showNotificationToast(editId ? `Updated ${toolName} record!` : `Logged out ${toolName} to ${borrower}!`);
+    }
+    if (typeof pushToGitHub === 'function') await pushToGitHub(commitMsg);
+}
+
+async function deleteToolLog(logId) {
+    if (isVisitorMode()) {
+        if (typeof showNotificationToast === 'function') showNotificationToast('Visitors have view-only access.', true);
+        return;
+    }
+    const target = window.toolLogs.find(t => t.id == logId);
+    if (!target) return;
+
+    if (confirm(`Delete tool log for "${target.toolName}" borrowed by ${target.borrower}?`)) {
+        window.toolLogs = window.toolLogs.filter(t => t.id != logId);
+        localStorage.setItem('seiralab_tool_logs', JSON.stringify(window.toolLogs));
+        renderToolLogsTable();
+        buildSystemNotifications();
+
+        if (typeof showNotificationToast === 'function') showNotificationToast(`Deleted tool record for ${target.toolName}`);
+        if (typeof pushToGitHub === 'function') await pushToGitHub(`Delete Tool Log: ${target.toolName} (${target.toolCode})`);
+    }
 }
 
 async function markToolReturned(logId) {
-    if (isVisitor(window.currentAccessRole)) return;
-    const log = window.toolLogs.find(t => t.id === logId);
+    if (isVisitorMode()) return;
+    const log = window.toolLogs.find(t => t.id == logId);
     if (!log) return;
 
     const now = new Date();
@@ -403,9 +705,24 @@ function exportToolLogsCSV() {
     if (typeof downloadBlob === 'function') downloadBlob(csv, `Seiralab_Biomed_Tool_Logbook_${new Date().toISOString().split('T')[0]}.csv`, 'text/csv');
 }
 
+// Global hooks so HTML onclick handlers always find them
+window.openBorrowToolModal = openBorrowToolModal;
+window.openEditToolModal = openEditToolModal;
+window.closeBorrowToolModal = closeBorrowToolModal;
+window.saveToolBorrow = saveToolBorrow;
+window.deleteToolLog = deleteToolLog;
+window.markToolReturned = markToolReturned;
+
+window.openAddCalibrationModal = openAddCalibrationModal;
+window.openEditCalibrationModal = openEditCalibrationModal;
+window.closeAddCalibrationModal = closeAddCalibrationModal;
+window.saveCalibrationReport = saveCalibrationReport;
+window.deleteCalibrationReport = deleteCalibrationReport;
+
 const baseSwitchTab = window.switchTab;
 window.switchTab = function(tabId) {
-    if (tabId === 'inventory' && !isSupervisorOrAdmin(window.currentAccessRole)) {
+    const role = window.currentAccessRole || sessionStorage.getItem('seiralab_active_session_role') || 'Visitor';
+    if (tabId === 'inventory' && role !== 'Head Technical' && role !== 'MasterAdmin') {
         if (typeof showNotificationToast === 'function') showNotificationToast('Only Head Technical & MasterAdmin can access Inventory.', true);
         return;
     }
@@ -417,6 +734,7 @@ window.switchTab = function(tabId) {
 };
 
 window.addEventListener('DOMContentLoaded', function() {
+    ensureFeatureModalsExist();
     upgradeCalibrationToolbarUI();
     renderCalibrationTable();
     renderToolLogsTable();
