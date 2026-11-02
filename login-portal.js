@@ -37,7 +37,49 @@ document.addEventListener('keydown', function (e) {
         return false;
     }
 });
+// ============================================================================
+// ACTIVE DEVTOOLS & SOURCES PANEL SHIELD
+// ============================================================================
+(function enableAntiInspectShield() {
+    // 1. Block Right-Click, F12, Ctrl+Shift+I/J/C, and Ctrl+U for ALL roles
+    document.addEventListener('contextmenu', e => e.preventDefault());
+    document.addEventListener('keydown', function (e) {
+        const key = (e.key || '').toUpperCase();
+        if (
+            e.key === 'F12' ||
+            (e.ctrlKey && e.shiftKey && ['I', 'J', 'C', 'K'].includes(key)) ||
+            (e.ctrlKey && ['U', 'S'].includes(key))
+        ) {
+            e.preventDefault();
+            e.stopPropagation();
+            return false;
+        }
+    }, true);
 
+    // 2. Detect if DevTools / Sources panel is docked or undocked
+    setInterval(function () {
+        const widthThreshold = window.outerWidth - window.innerWidth > 160;
+        const heightThreshold = window.outerHeight - window.innerHeight > 160;
+        const isDevToolsOpen = widthThreshold || heightThreshold;
+
+        let shield = document.getElementById('seiralabSecurityShield');
+        if (isDevToolsOpen) {
+            if (!shield) {
+                shield = document.createElement('div');
+                shield.id = 'seiralabSecurityShield';
+                shield.className = 'fixed inset-0 z-[9999] bg-slate-950 text-white flex flex-col items-center justify-center p-6 text-center select-none';
+                shield.innerHTML = `
+                    <div class="w-16 h-16 rounded-full bg-rose-500/20 border border-rose-500 flex items-center justify-center mb-4 text-rose-400 text-2xl font-bold">!</div>
+                    <h2 class="text-xl font-bold tracking-tight">Protected Biomedical System</h2>
+                    <p class="text-xs text-slate-400 mt-2 max-w-sm">Developer Tools / Source Inspection is not permitted on Seiralab ATLAS. Please close the Developer Tools panel to resume your session.</p>
+                `;
+                document.body.appendChild(shield);
+            }
+        } else if (shield) {
+            shield.remove();
+        }
+    }, 800);
+})();
 // ============================================================================
 // 2. ROLE CHECK HELPERS & CRYPTOGRAPHIC SHA-256 ENGINE
 // ============================================================================
