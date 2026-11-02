@@ -1,57 +1,37 @@
 // ============================================================================
-// ZERO FRONTEND PASSWORDS: 100% VERIFIED BY CLOUDFLARE EDGE WORKER (/api/login)
+// SEIRALAB CMMS - LOGIN-PORTAL.JS (ATLAS LOGIN, SIGN IN/OUT MENU & WALLPAPER)
 // ============================================================================
 
-// Deter casual Inspect Element (Right-Click, F12, Ctrl+Shift+I, Ctrl+U)
-document.addEventListener('contextmenu', function(e) {
-    if (window.currentAccessRole !== 'MasterAdmin') e.preventDefault();
-});
-document.addEventListener('keydown', function(e) {
-    if (window.currentAccessRole === 'MasterAdmin') return;
-    if (
-        e.key === 'F12' ||
-        (e.ctrlKey && e.shiftKey && ['I', 'J', 'C'].includes(e.key.toUpperCase())) ||
-        (e.ctrlKey && e.key.toUpperCase() === 'U')
-    ) {
-        e.preventDefault();
-    }
-});
+window.currentAccessRole = sessionStorage.getItem('seiralab_active_session_role') || '';
 
-async function submitPortalLogin(event) {
-    event.preventDefault();
-    const role = document.getElementById('portalRoleSelect').value;
-    const typedPass = document.getElementById('portalPasswordInput').value.trim();
-    const errorEl = document.getElementById('portalLoginError');
+// SHA-256 Hashes of role passwords ("seiralab2026", "seiralabhead", "seiralabadmin")
+const ROLE_PASSWORD_HASHES = {
+    "Visitor": "",
+    "Technical": "8d83c657c9e64c44f5c11a9a233575b7011687059373a826f2b4036e8234157a",
+    "Head Technical": "c4501796574c043528098a3f904c2b937483745937b56b267275325d8f197253",
+    "MasterAdmin": "9f63560155a14746284579f3287250e94c8e217e883677615a8b0993e833290e"
+};
 
-    try {
-        const res = await fetch('/api/login', {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Seiralab-Client': 'ATLAS-v1'
-            },
-            body: JSON.stringify({ role: role, password: typedPass })
-        });
+let wallpaperAnimId = null;
+let mousePos = { x: -999, y: -999 };
 
-        if (res.ok) {
-            const data = await res.json();
-            sessionStorage.setItem('seiralab_auth_token', data.token);
-            sessionStorage.setItem('seiralab_active_session_role', role);
-            errorEl.classList.add('hidden');
-            document.getElementById('portalPasswordInput').value = '';
-            document.getElementById('seiralabLoginPortal')?.classList.add('hidden');
-            switchAccessRole(role, `Welcome, ${role}`, false);
-        } else {
-            errorEl.innerText = `Invalid password for ${role}. Please try again.`;
-            errorEl.classList.remove('hidden');
-            document.getElementById('portalPasswordInput').value = '';
-            document.getElementById('portalPasswordInput').focus();
-        }
-    } catch (err) {
-        errorEl.innerText = 'Unable to reach authentication server.';
-        errorEl.classList.remove('hidden');
-    }
+function isVisitor(role) {
+    return !role || role === 'Visitor';
+}
+
+function isSupervisorOrAdmin(role) {
+    return role === 'Head Technical' || role === 'MasterAdmin';
+}
+
+function isMasterAdminOnly(role) {
+    return role === 'MasterAdmin';
+}
+
+async function sha256Hex(message) {
+    const msgBuffer = new TextEncoder().encode(message);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
 // 1. LIVE WALLPAPER CANVAS ENGINE
@@ -281,7 +261,7 @@ async function submitPortalLogin(event) {
     }
 
     const inputHash = await sha256Hex(typedPass);
-    const validPlain = (typedPass === "personnel" && role === "Technical") ||
+    const validPlain = (typedPass === "seiralab2026" && role === "Technical") ||
                        (typedPass === "seiralabhead" && role === "Head Technical") ||
                        (typedPass === "seiralabadmin" && role === "MasterAdmin");
 
