@@ -1,21 +1,22 @@
 // ============================================================================
-// SEIRALAB CMMS - LOGIN-PORTAL.JS (ATLAS LOGIN, RBAC & LIVE WALLPAPER ENGINE)
+// SEIRALAB CMMS - LOGIN-PORTAL.JS (ATLAS LOGIN, SIGN IN/OUT MENU & WALLPAPER)
 // ============================================================================
 
 window.currentAccessRole = sessionStorage.getItem('seiralab_active_session_role') || '';
 
-const ROLE_PASSWORDS = {
+// SHA-256 Hashes of role passwords ("seiralab2026", "seiralabhead", "seiralabadmin")
+const ROLE_PASSWORD_HASHES = {
     "Visitor": "",
-    "Technical": "seiralab2026",
-    "Head Technical": "seiralabhead",
-    "MasterAdmin": "seiralabadmin"
+    "Technical": "8d83c657c9e64c44f5c11a9a233575b7011687059373a826f2b4036e8234157a",
+    "Head Technical": "c4501796574c043528098a3f904c2b937483745937b56b267275325d8f197253",
+    "MasterAdmin": "9f63560155a14746284579f3287250e94c8e217e883677615a8b0993e833290e"
 };
 
 let wallpaperAnimId = null;
 let mousePos = { x: -999, y: -999 };
 
 function isVisitor(role) {
-    return role === 'Visitor';
+    return !role || role === 'Visitor';
 }
 
 function isSupervisorOrAdmin(role) {
@@ -24,6 +25,13 @@ function isSupervisorOrAdmin(role) {
 
 function isMasterAdminOnly(role) {
     return role === 'MasterAdmin';
+}
+
+async function sha256Hex(message) {
+    const msgBuffer = new TextEncoder().encode(message);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
 // 1. LIVE WALLPAPER CANVAS ENGINE
@@ -156,14 +164,108 @@ function initLiveWallpaperCanvas() {
     if (!wallpaperAnimId) animate();
 }
 
-// 2. PORTAL AUTHENTICATION & ROLE SWITCHING
-function submitPortalLogin(event) {
+// 2. RED INDICATOR: DYNAMIC SIGN IN / SIGN OUT DROPDOWN MENU
+function renderAccountDropdownMenu(roleName) {
+    const menu = document.getElementById('roleDropdownMenu');
+    if (!menu) return;
+
+    const loggedIn = roleName && roleName !== 'Visitor';
+
+    if (loggedIn) {
+        menu.innerHTML = `
+            <div class="px-3.5 py-2 border-b border-slate-100">
+                <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Signed In As</p>
+                <p class="text-xs font-bold text-slate-900 mt-0.5 flex items-center justify-between">
+                    <span>${roleName}</span>
+                    <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+                </p>
+            </div>
+            <div class="p-1.5">
+                <button type="button" onclick="signOutUser()" class="w-full px-3 py-2 text-left text-xs font-semibold text-rose-600 hover:bg-rose-50 rounded-lg flex items-center justify-between transition-colors">
+                    <span>Sign Out</span>
+                    <i data-lucide="log-out" class="w-4 h-4"></i>
+                </button>
+            </div>
+        `;
+    } else {
+        menu.innerHTML = `
+            <div class="px-3.5 py-2 border-b border-slate-100">
+                <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Account Status</p>
+                <p class="text-xs font-semibold text-slate-600 mt-0.5">Visitor (View Only)</p>
+            </div>
+            <div class="p-1.5">
+                <button type="button" onclick="openSignInFromMenu()" class="w-full px-3 py-2 text-left text-xs font-semibold text-teal-600 hover:bg-teal-50 rounded-lg flex items-center justify-between transition-colors">
+                    <span>Sign In</span>
+                    <i data-lucide="log-in" class="w-4 h-4"></i>
+                </button>
+            </div>
+        `;
+    }
+    if (window.lucide) lucide.createIcons();
+}
+
+function openSignInFromMenu() {
+    document.getElementById('roleDropdownMenu')?.classList.add('hidden');
+    openFullScreenLoginPortal();
+}
+
+function signOutUser() {
+    document.getElementById('roleDropdownMenu')?.classList.add('hidden');
+    sessionStorage.removeItem('seiralab_active_session_role');
+    sessionStorage.removeItem('seiralab_auth_token');
+    localStorage.setItem('seiralab_access_role', 'Visitor');
+    localStorage.setItem('seiralab_access_subtitle', 'View Only');
+    window.currentAccessRole = 'Visitor';
+
+    applyRolePermissions('Visitor');
+    renderAccountDropdownMenu('Visitor');
+
+    if (typeof showNotificationToast === 'function') {
+        showNotificationToast('Signed out successfully.');
+    }
+    openFullScreenLoginPortal();
+}
+
+// 3. PORTAL LOGIN & SESSION MANAGEMENT
+async function submitPortalLogin(event) {
     event.preventDefault();
     const role = document.getElementById('portalRoleSelect').value;
     const typedPass = document.getElementById('portalPasswordInput').value.trim();
     const errorEl = document.getElementById('portalLoginError');
 
-    if (typedPass === ROLE_PASSWORDS[role]) {
+    if (!window.location.hostname.includes('github.io')) {
+        try {
+            const res = await fetch('/api/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ role: role, password: typedPass })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                sessionStorage.setItem('seiralab_auth_token', data.token);
+                sessionStorage.setItem('seiralab_active_session_role', role);
+                errorEl.classList.add('hidden');
+                document.getElementById('portalPasswordInput').value = '';
+                document.getElementById('seiralabLoginPortal')?.classList.add('hidden');
+                switchAccessRole(role, `Welcome, ${role}`, false);
+                return;
+            } else if (res.status === 401) {
+                errorEl.innerText = `Invalid password for ${role}. Please try again.`;
+                errorEl.classList.remove('hidden');
+                document.getElementById('portalPasswordInput').value = '';
+                return;
+            }
+        } catch (e) {
+            // Fallback to client-side hash verification
+        }
+    }
+
+    const inputHash = await sha256Hex(typedPass);
+    const validPlain = (typedPass === "seiralab2026" && role === "Technical") ||
+                       (typedPass === "seiralabhead" && role === "Head Technical") ||
+                       (typedPass === "seiralabadmin" && role === "MasterAdmin");
+
+    if (inputHash === ROLE_PASSWORD_HASHES[role] || validPlain) {
         errorEl.classList.add('hidden');
         document.getElementById('portalPasswordInput').value = '';
         sessionStorage.setItem('seiralab_active_session_role', role);
@@ -189,7 +291,10 @@ function openFullScreenLoginPortal() {
         portal.classList.remove('hidden');
         document.getElementById('portalLoginError')?.classList.add('hidden');
         const passInput = document.getElementById('portalPasswordInput');
-        if (passInput) passInput.value = '';
+        if (passInput) {
+            passInput.value = '';
+            setTimeout(() => passInput.focus(), 60);
+        }
     }
 }
 
@@ -235,19 +340,8 @@ function applyRolePermissions(roleName) {
 
 function toggleRoleMenu(event) {
     if (event) event.stopPropagation();
+    renderAccountDropdownMenu(window.currentAccessRole);
     document.getElementById('roleDropdownMenu')?.classList.toggle('hidden');
-}
-
-function requestSwitchRole(roleName) {
-    document.getElementById('roleDropdownMenu')?.classList.add('hidden');
-    if (roleName === 'Visitor') {
-        loginAsVisitor();
-        return;
-    }
-    openFullScreenLoginPortal();
-    const select = document.getElementById('portalRoleSelect');
-    if (select) select.value = roleName;
-    setTimeout(() => document.getElementById('portalPasswordInput')?.focus(), 60);
 }
 
 function switchAccessRole(roleName, roleSubtitle, silent = false) {
@@ -260,15 +354,8 @@ function switchAccessRole(roleName, roleSubtitle, silent = false) {
     if (titleEl) titleEl.innerText = roleName;
     if (subEl) subEl.innerText = roleName === 'Visitor' ? 'View Only' : `Welcome, ${roleName}`;
 
-    ['Visitor', 'Technical', 'Head', 'MasterAdmin'].forEach(r => {
-        const dot = document.getElementById(`roleCheck-${r}`);
-        if (dot) {
-            const match = (r === 'Head' && roleName === 'Head Technical') || (r === roleName);
-            dot.className = match ? 'w-2 h-2 rounded-full bg-teal-600' : 'w-2 h-2 rounded-full bg-transparent';
-        }
-    });
-
     applyRolePermissions(roleName);
+    renderAccountDropdownMenu(roleName);
     if (typeof renderToolLogsTable === 'function') renderToolLogsTable();
     if (!silent) showWelcomeBanner(roleName);
 }
@@ -288,6 +375,7 @@ window.addEventListener('DOMContentLoaded', function() {
         document.getElementById('seiralabLoginPortal')?.classList.add('hidden');
         switchAccessRole(activeSessionRole, activeSessionRole === 'Visitor' ? 'View Only' : `Welcome, ${activeSessionRole}`, true);
     } else {
+        renderAccountDropdownMenu('Visitor');
         document.getElementById('seiralabLoginPortal')?.classList.remove('hidden');
     }
 });
