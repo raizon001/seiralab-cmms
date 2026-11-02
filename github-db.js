@@ -152,13 +152,18 @@ const res = await fetch(ghConfig.proxyUrl, {
     }
 }
 
-async function pushToGitHub(commitMessage = 'Update Seiralab records') {
-    saveToLocalCache();
-
-    if (!isGitHubConfigured()) {
-        updateConnectionBadge('local');
-        return;
-    }
+const res = await fetch(ghConfig.proxyUrl, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: {
+        'Content-Type': 'application/json',
+        'X-Seiralab-Client': 'ATLAS-v1',
+        'Authorization': `Bearer ${sessionToken}`,
+        'X-File-SHA': currentFileSHA,
+        'X-Commit-Message': commitMessage
+    },
+    body: payloadData
+});
 
     updateConnectionBadge('syncing', 'Recording...');
     const payloadData = JSON.stringify({
