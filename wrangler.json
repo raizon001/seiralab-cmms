@@ -1,7 +1,18 @@
 {
   "name": "seiralabatlas",
+  "main": "worker.js",
   "compatibility_date": "2026-04-01",
   "assets": {
-    "directory": "."
+    "directory": ".",
+    "binding": "ASSETS",
+    "run_worker_first": [
+      "/api/*",
+      "/functions/*",
+      "/worker.js",
+      "/wrangler.*",
+      "/*.go",
+      "/*.mod",
+      "/.env*"
+    ]
   }
 }
