@@ -901,6 +901,128 @@
         </div>
     </div>
 
+    <!-- FULL-SCREEN ATLAS LOGIN PORTAL (HTML SEPARATED FROM JS) -->
+    <div id="seiralabLoginPortal" class="fixed inset-0 z-[100] bg-slate-950 flex flex-col justify-between overflow-hidden select-none">
+        <!-- Interactive HTML5 Canvas Live Wallpaper -->
+        <canvas id="liveWallpaperCanvas" class="absolute inset-0 w-full h-full pointer-events-none"></canvas>
+
+        <!-- Top-Left Seiralab Banner Logo -->
+        <div class="relative z-10 p-5 sm:p-8 flex items-center justify-start">
+            <div class="bg-white/95 backdrop-blur-md px-4 py-2 rounded-2xl shadow-xl border border-white/20 inline-flex items-center space-x-3">
+                <img src="./seiralab-logo.gIH9ySyn.jpg" 
+                     alt="Seiralab Incorporated" 
+                     class="h-10 sm:h-12 w-auto object-contain"
+                     onerror="this.onerror=null; this.src='./seiralab-logo.jpg';">
+            </div>
+        </div>
+
+        <!-- Center ATLAS Login Card -->
+        <div class="relative z-10 flex-1 flex items-center justify-center px-4 py-6">
+            <div class="w-full max-w-md bg-slate-900/80 backdrop-blur-xl border border-teal-500/30 rounded-3xl p-8 shadow-2xl text-center relative overflow-hidden">
+                <div class="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-emerald-500 via-yellow-400 to-teal-500"></div>
+
+                <!-- Biomedical Technical Team Emblem -->
+                <div class="w-28 h-28 sm:w-32 sm:h-32 mx-auto mb-5 rounded-full p-1 bg-gradient-to-tr from-emerald-500 via-teal-400 to-yellow-400 shadow-xl">
+                    <div class="w-full h-full rounded-full overflow-hidden bg-white flex items-center justify-center">
+                        <img src="./team.png.jpg" 
+                             alt="Biomedical Technical Team" 
+                             class="w-full h-full object-cover"
+                             onerror="this.onerror=null; this.src='./team.png';">
+                    </div>
+                </div>
+
+                <h2 class="text-xl font-bold text-white tracking-tight">ATLAS</h2>
+                <p class="text-xs text-slate-400 mt-1 mb-6">Select your access role and enter your authorization password</p>
+
+                <form onsubmit="submitPortalLogin(event)" class="space-y-5 text-left">
+                    <div>
+                        <select id="portalRoleSelect" class="w-full bg-slate-950/90 border-2 border-slate-700 focus:border-teal-400 text-white font-semibold text-sm rounded-xl px-4 py-3.5 text-center focus:outline-none transition-colors cursor-pointer shadow-inner">
+                            <option value="Technical">Technical</option>
+                            <option value="MasterAdmin">Admin (MasterAdmin)</option>
+                            <option value="Head Technical">Head (Head Technical)</option>
+                        </select>
+                        <label class="block text-center text-xs font-bold uppercase tracking-widest text-teal-400 mt-1.5">Login</label>
+                    </div>
+
+                    <div id="portalPasswordContainer">
+                        <input type="password" id="portalPasswordInput" required placeholder="••••••••••••" class="w-full bg-slate-950/90 border-2 border-slate-700 focus:border-teal-400 text-white font-mono text-center text-base rounded-xl px-4 py-3 focus:outline-none transition-colors shadow-inner">
+                        <label class="block text-center text-xs font-bold uppercase tracking-widest text-teal-400 mt-1.5">Password</label>
+                    </div>
+
+                    <p id="portalLoginError" class="hidden text-xs font-semibold text-rose-400 text-center bg-rose-950/60 border border-rose-500/40 rounded-lg py-2 px-3"></p>
+
+                    <button type="submit" class="w-full py-3.5 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 text-white font-bold text-sm rounded-xl shadow-lg shadow-teal-900/50 transition-all transform active:scale-[0.99] cursor-pointer">
+                        Enter Seiralab System
+                    </button>
+                </form>
+
+                <div class="mt-6 pt-4 border-t border-slate-800 flex items-center justify-center text-xs">
+                    <button type="button" onclick="loginAsVisitor()" class="text-yellow-400 hover:text-yellow-300 font-semibold underline cursor-pointer">
+                        Continue as Visitor (View Only) &rarr;
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bottom Footer -->
+        <div class="relative z-10 px-6 py-3 text-xs text-slate-500 flex items-center justify-start max-w-7xl w-full mx-auto">
+            <span>Seiralab Incorporated &bull; Diagnostic &amp; Medical Equipment</span>
+        </div>
+    </div>
+
+    <!-- MODAL 5: ADD CALIBRATION REPORT MODAL -->
+    <div id="addCalibrationModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between pb-4 border-b border-slate-100">
+                <h3 class="font-bold text-slate-900 text-lg flex items-center space-x-2">
+                    <i data-lucide="file-check-2" class="w-5 h-5 text-teal-600"></i>
+                    <span>Add Calibration Report</span>
+                </h3>
+                <button type="button" onclick="closeAddCalibrationModal()" class="text-slate-400 hover:text-slate-600 p-1 rounded-lg">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            <form id="addCalibrationForm" onsubmit="saveCalibrationReport(event)" class="space-y-4 pt-4">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Certificate ID *</label>
+                        <input type="text" id="calCertId" required placeholder="e.g., CERT-2026-9001" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Serial Number *</label>
+                        <input type="text" id="calSerial" required placeholder="e.g., AS24B05160" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Equipment Name &amp; Model *</label>
+                    <input type="text" id="calEqName" required placeholder="e.g., Flexor Chemistry Analyzer (AB-380)" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Hospital / Laboratory Facility *</label>
+                    <input type="text" id="calFacility" required placeholder="e.g., Cebu City Medical Center" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Calibration Date *</label>
+                        <input type="date" id="calDate" required class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Next Due Date *</label>
+                        <input type="date" id="calNextDue" required class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Accuracy / Error Margin Result *</label>
+                    <input type="text" id="calAccuracy" required placeholder="e.g., ± 0.5% Absorbance (Pass)" value="± 0.5% Tolerance (Pass)" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                </div>
+                <div class="pt-4 flex items-center justify-end space-x-3">
+                    <button type="button" onclick="closeAddCalibrationModal()" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium text-sm rounded-lg transition-colors">Cancel</button>
+                    <button type="submit" class="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white font-medium text-sm rounded-lg transition-colors">Save Calibration Report</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- Footer -->
     <footer class="bg-white border-t border-slate-200 mt-auto py-6">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-4">
@@ -913,9 +1035,10 @@
         </div>
     </footer>
 
-    <!-- Modular JavaScript Files -->
+  <!-- Modular JavaScript Files -->
     <script src="./github-db.js"></script>
     <script src="./app.js"></script>
-    <script src="./tools-rbac.js"></script>
+    <script src="./login-portal.js"></script>
+    <script src="./features.js"></script>
 </body>
 </html>
