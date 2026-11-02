@@ -1,0 +1,13 @@
+functions/
+worker.js
+wrangler.json
+wrangler.toml
+main.go
+go.mod
+.env
+.env.*
+.git/
+.gitignore
+README.md
+*.md
+data/
