@@ -89,11 +89,10 @@ function saveToLocalCache() {
     if (window.currentFileSHA) localStorage.setItem('seiralab_file_sha', window.currentFileSHA);
 }
 
-async function syncFromGitHub() {
-    if (!isGitHubConfigured()) {
-        updateConnectionBadge('local');
-        return;
-    }
+const res = await fetch(ghConfig.proxyUrl, {
+    headers: { 'X-Seiralab-Client': 'ATLAS-v1' },
+    credentials: 'same-origin'
+});
 
     const spinner = document.getElementById('syncSpinner');
     if (spinner) spinner.classList.add('animate-spin');
