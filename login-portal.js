@@ -261,7 +261,7 @@ async function submitPortalLogin(event) {
     }
 
     const inputHash = await sha256Hex(typedPass);
-    const validPlain = (typedPass === "seiralab2026" && role === "Technical") ||
+    const validPlain = (typedPass === "seiralabtechnical" && role === "Technical") ||
                        (typedPass === "seiralabhead" && role === "Head Technical") ||
                        (typedPass === "seiralabadmin" && role === "MasterAdmin");
 
