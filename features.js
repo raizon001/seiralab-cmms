@@ -1,6 +1,11 @@
 // ============================================================================
-// SEIRALAB CMMS - FEATURES.JS
-// NOTIFICATIONS + CALIBRATION (ADD/EDIT/DELETE) + TOOL LOGBOOK (ADD/EDIT/DELETE)
+// SEIRALAB CMMS - FEATURES.JS (COMPLETE & CLEAN)
+// 1. NOTIFICATIONS
+// 2. CALIBRATION REPORTS (ADD / EDIT / DELETE / PDF)
+// 3. BIOMED TOOL & KIT LOGBOOK (BORROW / EDIT / DELETE / RETURN)
+// 4. EXCEL (.XLSX / .XLS), CSV & JSON ASSET IMPORTER (ZERO DUPLICATES)
+// 5. REMOVE RISK COLUMN FROM DASHBOARD & INVENTORY
+// 6. OFFICIAL SEIRALAB SERVICE REPORT TEMPLATE (SINGLE LOGO + BLANK FIELDS)
 // ============================================================================
 
 const DEFAULT_TOOL_LOGS = [
@@ -25,7 +30,6 @@ function isVisitorMode() {
 // 0. SELF-HEALING MODALS (Guarantees Borrow Tool & Calibration Modals Always Open)
 // ============================================================================
 function ensureFeatureModalsExist() {
-    // 1. Ensure Borrow / Edit Tool Modal Exists in DOM
     if (!document.getElementById('borrowToolModal')) {
         const toolModalHTML = `
         <div id="borrowToolModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
@@ -78,11 +82,9 @@ function ensureFeatureModalsExist() {
         </div>`;
         document.body.insertAdjacentHTML('beforeend', toolModalHTML);
     } else if (!document.getElementById('editToolLogId')) {
-        // Upgrade existing modal if hidden edit input is not there yet
         document.getElementById('borrowToolForm')?.insertAdjacentHTML('afterbegin', '<input type="hidden" id="editToolLogId" value="">');
     }
 
-    // 2. Ensure Add / Edit Calibration Report Modal Exists in DOM
     if (!document.getElementById('addCalibrationModal')) {
         const calModalHTML = `
         <div id="addCalibrationModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
@@ -705,7 +707,6 @@ function exportToolLogsCSV() {
     if (typeof downloadBlob === 'function') downloadBlob(csv, `Seiralab_Biomed_Tool_Logbook_${new Date().toISOString().split('T')[0]}.csv`, 'text/csv');
 }
 
-// Global hooks so HTML onclick handlers always find them
 window.openBorrowToolModal = openBorrowToolModal;
 window.openEditToolModal = openEditToolModal;
 window.closeBorrowToolModal = closeBorrowToolModal;
@@ -744,8 +745,6 @@ window.addEventListener('DOMContentLoaded', function() {
 // ============================================================================
 // 4. EXCEL (.XLSX / .XLS), CSV & JSON ASSET IMPORTER WITH DEDUPLICATION
 // ============================================================================
-
-// Dynamically load SheetJS (xlsx) library if not already loaded
 function ensureSheetJSLoaded() {
     return new Promise((resolve, reject) => {
         if (window.XLSX) return resolve(window.XLSX);
@@ -764,7 +763,6 @@ function ensureSheetJSLoaded() {
 }
 
 function relocateImportAssetButtonAndFixInput() {
-    // 1. Remove "Import Asset Data" from PM Schedule & Tasks tab
     const scheduleHeader = document.querySelector('#schedule');
     if (scheduleHeader) {
         scheduleHeader.querySelectorAll('button').forEach(btn => {
@@ -774,7 +772,6 @@ function relocateImportAssetButtonAndFixInput() {
         });
     }
 
-    // 2. Place "Import Asset Data" next to "+ Add Equipment" in Equipment Inventory
     const invSection = document.getElementById('inventory');
     if (!invSection) return;
 
@@ -802,7 +799,6 @@ function relocateImportAssetButtonAndFixInput() {
         parentDiv.insertBefore(importBtn, addEqBtn);
     }
 
-    // 3. Create hidden file input supporting .xlsx, .xls, .csv, and .json
     let fileInput = document.getElementById('seiralabAssetFileInput');
     if (!fileInput) {
         fileInput = document.createElement('input');
@@ -835,15 +831,13 @@ function triggerAssetImportPicker() {
     relocateImportAssetButtonAndFixInput();
     const fileInput = document.getElementById('seiralabAssetFileInput');
     if (fileInput) {
-        fileInput.value = ''; // Always reset so re-uploading an updated file works immediately
+        fileInput.value = '';
         fileInput.click();
     }
 }
 
-// Convert Excel serial dates (e.g. 46136) or string dates to YYYY-MM-DD
 function normalizeImportedDate(val, fallbackMonthsOffset = 0) {
     if (val !== undefined && val !== null && val !== '') {
-        // Handle Excel numeric date serials (e.g. 45000 - 55000)
         if (typeof val === 'number' && val > 25000 && val < 80000) {
             const utcDays = Math.floor(val - 25569);
             const d = new Date(utcDays * 86400 * 1000);
@@ -868,7 +862,6 @@ function normalizeImportedDate(val, fallbackMonthsOffset = 0) {
     return d.toISOString().split('T')[0];
 }
 
-// Normalize serial numbers so "AS-24B05160" and "as24b05160 " match as the same asset
 function normalizeSerialKey(serial) {
     return String(serial || '')
         .trim()
@@ -876,7 +869,6 @@ function normalizeSerialKey(serial) {
         .replace(/[\s\-_]/g, '');
 }
 
-// Normalize composite key (Name + Model + Facility) in case Serial Number is blank or generic
 function normalizeCompositeKey(item) {
     const n = String(item.name || '').trim().toLowerCase();
     const m = String(item.model || '').trim().toLowerCase();
@@ -884,9 +876,7 @@ function normalizeCompositeKey(item) {
     return `${n}|${m}|${f}`;
 }
 
-// Map an arbitrary object row from SheetJS / CSV / JSON into a standardized Seiralab Equipment object
 function mapRawRowToEquipment(row, idx) {
-    // Build a lookup of lowercase alphanumeric keys -> values
     const cleanMap = {};
     Object.keys(row || {}).forEach(k => {
         const cleanKey = String(k).toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -904,7 +894,6 @@ function mapRawRowToEquipment(row, idx) {
         return fallback;
     };
 
-    // If equipment & model are combined like "Flexor Chemistry Analyzer (AB-380)"
     let rawName = pick(['equipmentname', 'equipment', 'assetname', 'asset', 'machine', 'item', 'name'], '');
     let rawModel = pick(['model', 'brand', 'version', 'type'], '');
 
@@ -968,7 +957,6 @@ async function handleAssetDataFileImport(event) {
 
     try {
         if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls') || fileName.endsWith('.csv')) {
-            // Use SheetJS to parse .xlsx, .xls, or .csv accurately
             const XLSX = await ensureSheetJSLoaded();
             const arrayBuffer = await file.arrayBuffer();
             const workbook = XLSX.read(arrayBuffer, { type: 'array', cellDates: true });
@@ -976,7 +964,6 @@ async function handleAssetDataFileImport(event) {
             const worksheet = workbook.Sheets[firstSheetName];
             rawRows = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
         } else {
-            // Parse .json or .txt
             const text = (await file.text()).trim();
             if (text.startsWith('{') || text.startsWith('[')) {
                 const parsed = JSON.parse(text);
@@ -1011,22 +998,17 @@ async function handleAssetDataFileImport(event) {
 
     if (!Array.isArray(window.equipmentList)) window.equipmentList = [];
 
-    // STEP 1: Normalize all rows & deduplicate within the uploaded file itself
     const uniqueIncomingMap = new Map();
     rawRows.forEach((rawRow, idx) => {
-        // Skip completely blank rows in Excel
         const values = Object.values(rawRow || {}).map(v => String(v).trim()).filter(Boolean);
         if (values.length === 0) return;
 
         const mapped = mapRawRowToEquipment(rawRow, idx);
         const sKey = normalizeSerialKey(mapped.serial);
         const dedupKey = (sKey && !sKey.startsWith('sn')) ? `serial:${sKey}` : `comp:${normalizeCompositeKey(mapped)}`;
-
-        // Later rows in the same Excel sheet overwrite earlier duplicate rows
         uniqueIncomingMap.set(dedupKey, mapped);
     });
 
-    // STEP 2: Upsert into window.equipmentList (Update existing matches in place, add only new ones)
     let addedCount = 0;
     let updatedCount = 0;
 
@@ -1036,16 +1018,13 @@ async function handleAssetDataFileImport(event) {
 
         const existingIndex = window.equipmentList.findIndex(existing => {
             const existingSerialKey = normalizeSerialKey(existing.serial);
-            // Match 1: Same normalized Serial Number
             if (incomingSerialKey && existingSerialKey && incomingSerialKey === existingSerialKey) {
                 return true;
             }
-            // Match 2: Same Equipment Name + Model + Hospital Facility (when serial was edited or generic)
             return normalizeCompositeKey(existing) === incomingCompKey;
         });
 
         if (existingIndex !== -1) {
-            // Update existing asset in place (keep original ID so history logs stay linked, avoid duplicate)
             const preservedId = window.equipmentList[existingIndex].id;
             window.equipmentList[existingIndex] = {
                 ...window.equipmentList[existingIndex],
@@ -1054,13 +1033,11 @@ async function handleAssetDataFileImport(event) {
             };
             updatedCount++;
         } else {
-            // Brand new asset -> Add to inventory
             window.equipmentList.unshift(incomingItem);
             addedCount++;
         }
     });
 
-    // STEP 3: Save to localStorage and sync app.js state
     localStorage.setItem('seiralab_equipment', JSON.stringify(window.equipmentList));
     try {
         if (typeof equipmentList !== 'undefined') {
@@ -1081,7 +1058,6 @@ async function handleAssetDataFileImport(event) {
         localStorage.setItem('seiralab_calibrations', JSON.stringify(window.calibrationList));
     }
 
-    // STEP 4: Re-render all tables, counters, hospital filters, and notifications
     if (typeof populateFacilityFilter === 'function') populateFacilityFilter();
     if (typeof renderInventoryTable === 'function') renderInventoryTable();
     if (typeof renderDashboard === 'function') renderDashboard();
@@ -1096,7 +1072,6 @@ async function handleAssetDataFileImport(event) {
         showNotificationToast(msg);
     }
 
-    // STEP 5: Push updated database to GitHub via Cloudflare Worker
     if (typeof pushToGitHub === 'function') {
         await pushToGitHub(`Import Assets (${file.name}): +${addedCount} new, ${updatedCount} updated`);
     }
@@ -1117,7 +1092,6 @@ setTimeout(relocateImportAssetButtonAndFixInput, 300);
 // 5. REMOVE "RISK" FROM DASHBOARD, EQUIPMENT INVENTORY & ADD EQUIPMENT MODAL
 // ============================================================================
 function removeRiskFromAllUI() {
-    // 1. Inject CSS to hide Risk in Dashboard (col 3) & Inventory (col 5)
     if (!document.getElementById('hideAllRiskColumnsStyle')) {
         const style = document.createElement('style');
         style.id = 'hideAllRiskColumnsStyle';
@@ -1132,7 +1106,6 @@ function removeRiskFromAllUI() {
         document.head.appendChild(style);
     }
 
-    // 2. Hide the "Risk Level" dropdown inside the Add/Edit Equipment modal
     const riskSelect = document.getElementById('eqRisk');
     if (riskSelect && riskSelect.parentElement) {
         riskSelect.parentElement.classList.add('hidden');
@@ -1141,11 +1114,11 @@ function removeRiskFromAllUI() {
 
 window.addEventListener('DOMContentLoaded', removeRiskFromAllUI);
 setTimeout(removeRiskFromAllUI, 200);
+
 // ============================================================================
 // 6. OFFICIAL SEIRALAB SERVICE REPORT TEMPLATE IN MAINTENANCE HISTORY & LOGS
-// Cleaned header (single logo banner) + blank Findings, Action Taken & Amount
+// Single centered banner logo + blank Findings, Action Taken & Amount boxes
 // ============================================================================
-
 function ensureServiceReportModalExists() {
     if (document.getElementById('seiralabServiceReportModal')) return;
 
@@ -1226,7 +1199,7 @@ function ensureServiceReportModalExists() {
         <!-- Printable Paper Form -->
         <div id="srPaperSheet" class="w-full max-w-4xl bg-white shadow-2xl border border-slate-300 rounded-b-2xl p-6 sm:p-10 text-sm leading-snug mb-10">
 
-            <!-- Header: Centered Official Seiralab Banner Logo Only (Duplicate Text Removed) -->
+            <!-- Header: Centered Official Seiralab Banner Logo Only -->
             <div class="flex flex-col items-center justify-center text-center pb-1">
                 <img src="./seiralab-logo.jpg" alt="Seiralab Incorporated" class="h-20 sm:h-24 w-auto object-contain mx-auto" onerror="this.onerror=null; this.src='./seiralab-logo.gIH9ySyn.jpg';">
                 <p class="text-xs sm:text-[13px] text-slate-900 mt-1.5">
@@ -1453,9 +1426,9 @@ function openServiceReportTemplate(logId) {
     document.getElementById('srEqArea1').value = matchedEq?.location || log?.facility || '';
     document.getElementById('srEqArea2').value = matchedEq?.nextDue ? `Next PM Due: ${matchedEq.nextDue}` : '';
 
-    // Keep Findings, Action Taken, Amount, Parts, and Remarks clean (no pre-filled boilerplate text)
+    // Blank by default as requested
     document.getElementById('srFindings').value = '';
-    document.getElementById('srActionTaken').value = log?.notes || '';
+    document.getElementById('srActionTaken').value = '';
     document.getElementById('srServiceAmount').value = '';
     document.getElementById('srParts').value = '';
     document.getElementById('srPartsAmount').value = '';
