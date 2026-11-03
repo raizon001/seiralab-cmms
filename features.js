@@ -1112,3 +1112,32 @@ window.addEventListener('DOMContentLoaded', function () {
     relocateImportAssetButtonAndFixInput();
 });
 setTimeout(relocateImportAssetButtonAndFixInput, 300);
+
+// ============================================================================
+// 5. REMOVE "RISK" FROM DASHBOARD, EQUIPMENT INVENTORY & ADD EQUIPMENT MODAL
+// ============================================================================
+function removeRiskFromAllUI() {
+    // 1. Inject CSS to hide Risk in Dashboard (col 3) & Inventory (col 5)
+    if (!document.getElementById('hideAllRiskColumnsStyle')) {
+        const style = document.createElement('style');
+        style.id = 'hideAllRiskColumnsStyle';
+        style.textContent = `
+            #dashboard table th:nth-child(3),
+            #dashboard table td:nth-child(3),
+            #inventory table th:nth-child(5),
+            #inventory table td:nth-child(5) {
+                display: none !important;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    // 2. Hide the "Risk Level" dropdown inside the Add/Edit Equipment modal
+    const riskSelect = document.getElementById('eqRisk');
+    if (riskSelect && riskSelect.parentElement) {
+        riskSelect.parentElement.classList.add('hidden');
+    }
+}
+
+window.addEventListener('DOMContentLoaded', removeRiskFromAllUI);
+setTimeout(removeRiskFromAllUI, 200);
