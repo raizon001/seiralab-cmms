@@ -740,3 +740,375 @@ window.addEventListener('DOMContentLoaded', function() {
     renderToolLogsTable();
     buildSystemNotifications();
 });
+
+// ============================================================================
+// 4. EXCEL (.XLSX / .XLS), CSV & JSON ASSET IMPORTER WITH DEDUPLICATION
+// ============================================================================
+
+// Dynamically load SheetJS (xlsx) library if not already loaded
+function ensureSheetJSLoaded() {
+    return new Promise((resolve, reject) => {
+        if (window.XLSX) return resolve(window.XLSX);
+        const existingScript = document.getElementById('sheetjs-cdn-script');
+        if (existingScript) {
+            existingScript.addEventListener('load', () => resolve(window.XLSX));
+            return;
+        }
+        const script = document.createElement('script');
+        script.id = 'sheetjs-cdn-script';
+        script.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+        script.onload = () => resolve(window.XLSX);
+        script.onerror = () => reject(new Error('Failed to load Excel parser'));
+        document.head.appendChild(script);
+    });
+}
+
+function relocateImportAssetButtonAndFixInput() {
+    // 1. Remove "Import Asset Data" from PM Schedule & Tasks tab
+    const scheduleHeader = document.querySelector('#schedule');
+    if (scheduleHeader) {
+        scheduleHeader.querySelectorAll('button').forEach(btn => {
+            if (btn.innerText.includes('Import Asset Data')) {
+                btn.remove();
+            }
+        });
+    }
+
+    // 2. Place "Import Asset Data" next to "+ Add Equipment" in Equipment Inventory
+    const invSection = document.getElementById('inventory');
+    if (!invSection) return;
+
+    let addEqBtn = null;
+    invSection.querySelectorAll('button').forEach(btn => {
+        if (btn.innerText.includes('Add Equipment')) {
+            addEqBtn = btn;
+        }
+    });
+
+    if (addEqBtn && !document.getElementById('btnInventoryImportAsset')) {
+        const parentDiv = addEqBtn.parentElement;
+        parentDiv.className = 'flex items-center space-x-2.5 shrink-0 flex-wrap gap-y-2';
+
+        const importBtn = document.createElement('button');
+        importBtn.type = 'button';
+        importBtn.id = 'btnInventoryImportAsset';
+        importBtn.onclick = triggerAssetImportPicker;
+        importBtn.className = 'inline-flex items-center justify-center px-3.5 py-2 bg-white border border-slate-300 hover:border-teal-600 text-slate-700 hover:text-teal-700 hover:bg-teal-50 rounded-lg font-medium text-xs sm:text-sm shadow-xs transition-all space-x-1.5 whitespace-nowrap cursor-pointer';
+        importBtn.innerHTML = `
+            <i data-lucide="file-spreadsheet" class="w-4 h-4 text-teal-600"></i>
+            <span>Import Asset Data (.xlsx / .csv)</span>
+        `;
+
+        parentDiv.insertBefore(importBtn, addEqBtn);
+    }
+
+    // 3. Create hidden file input supporting .xlsx, .xls, .csv, and .json
+    let fileInput = document.getElementById('seiralabAssetFileInput');
+    if (!fileInput) {
+        fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.id = 'seiralabAssetFileInput';
+        fileInput.accept = '.xlsx,.xls,.csv,.json,.txt';
+        fileInput.className = 'hidden';
+        fileInput.addEventListener('change', handleAssetDataFileImport);
+        document.body.appendChild(fileInput);
+    } else {
+        fileInput.accept = '.xlsx,.xls,.csv,.json,.txt';
+    }
+
+    const legacyInput = document.getElementById('importFileInput');
+    if (legacyInput) {
+        legacyInput.accept = '.xlsx,.xls,.csv,.json,.txt';
+        legacyInput.onchange = handleAssetDataFileImport;
+    }
+
+    if (window.lucide) lucide.createIcons();
+}
+
+function triggerAssetImportPicker() {
+    if (isVisitorMode()) {
+        if (typeof showNotificationToast === 'function') {
+            showNotificationToast('Visitors have view-only access. Please Sign In.', true);
+        }
+        return;
+    }
+    relocateImportAssetButtonAndFixInput();
+    const fileInput = document.getElementById('seiralabAssetFileInput');
+    if (fileInput) {
+        fileInput.value = ''; // Always reset so re-uploading an updated file works immediately
+        fileInput.click();
+    }
+}
+
+// Convert Excel serial dates (e.g. 46136) or string dates to YYYY-MM-DD
+function normalizeImportedDate(val, fallbackMonthsOffset = 0) {
+    if (val !== undefined && val !== null && val !== '') {
+        // Handle Excel numeric date serials (e.g. 45000 - 55000)
+        if (typeof val === 'number' && val > 25000 && val < 80000) {
+            const utcDays = Math.floor(val - 25569);
+            const d = new Date(utcDays * 86400 * 1000);
+            if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
+        }
+        if (val instanceof Date && !isNaN(val.getTime())) {
+            return val.toISOString().split('T')[0];
+        }
+        const cleaned = String(val).trim();
+        if (/^\d{5}$/.test(cleaned)) {
+            const utcDays = Math.floor(Number(cleaned) - 25569);
+            const d = new Date(utcDays * 86400 * 1000);
+            if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
+        }
+        const parsed = new Date(cleaned);
+        if (!isNaN(parsed.getTime())) {
+            return parsed.toISOString().split('T')[0];
+        }
+    }
+    const d = new Date();
+    if (fallbackMonthsOffset) d.setMonth(d.getMonth() + fallbackMonthsOffset);
+    return d.toISOString().split('T')[0];
+}
+
+// Normalize serial numbers so "AS-24B05160" and "as24b05160 " match as the same asset
+function normalizeSerialKey(serial) {
+    return String(serial || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[\s\-_]/g, '');
+}
+
+// Normalize composite key (Name + Model + Facility) in case Serial Number is blank or generic
+function normalizeCompositeKey(item) {
+    const n = String(item.name || '').trim().toLowerCase();
+    const m = String(item.model || '').trim().toLowerCase();
+    const f = String(item.facility || '').trim().toLowerCase();
+    return `${n}|${m}|${f}`;
+}
+
+// Map an arbitrary object row from SheetJS / CSV / JSON into a standardized Seiralab Equipment object
+function mapRawRowToEquipment(row, idx) {
+    // Build a lookup of lowercase alphanumeric keys -> values
+    const cleanMap = {};
+    Object.keys(row || {}).forEach(k => {
+        const cleanKey = String(k).toLowerCase().replace(/[^a-z0-9]/g, '');
+        cleanMap[cleanKey] = row[k];
+    });
+
+    const pick = (keywords, fallback = '') => {
+        for (const kw of keywords) {
+            for (const key of Object.keys(cleanMap)) {
+                if (key.includes(kw) && cleanMap[key] !== undefined && cleanMap[key] !== '') {
+                    return String(cleanMap[key]).trim();
+                }
+            }
+        }
+        return fallback;
+    };
+
+    // If equipment & model are combined like "Flexor Chemistry Analyzer (AB-380)"
+    let rawName = pick(['equipmentname', 'equipment', 'assetname', 'asset', 'machine', 'item', 'name'], '');
+    let rawModel = pick(['model', 'brand', 'version', 'type'], '');
+
+    if (!rawModel && rawName.includes('(') && rawName.endsWith(')')) {
+        const openIdx = rawName.lastIndexOf('(');
+        rawModel = rawName.slice(openIdx + 1, -1).trim();
+        rawName = rawName.slice(0, openIdx).trim();
+    }
+
+    const name = rawName || 'Medical Diagnostic Analyzer';
+    const model = rawModel || 'Standard';
+    const serial = pick(['serial', 'sn', 'assetid', 'id', 'code', 'tag'], `SN-${idx + 1}`);
+    const facility = pick(['hospital', 'facility', 'client', 'site', 'clinic', 'center'], 'Cebu City Medical Center');
+    const dept = pick(['dept', 'department', 'section', 'ward', 'unit'], 'Pathology Lab');
+    const location = pick(['location', 'region', 'city', 'area', 'room'], 'CEBU - Clinical Lab');
+
+    let risk = pick(['risk', 'priority', 'criticality'], 'High');
+    if (!['Critical', 'High', 'Medium', 'Low'].includes(risk)) {
+        const rLow = risk.toLowerCase();
+        risk = rLow.includes('crit') ? 'Critical'
+             : rLow.includes('med') ? 'Medium'
+             : rLow.includes('low') ? 'Low' : 'High';
+    }
+
+    let status = pick(['status', 'condition', 'state'], 'Operational');
+    if (!['Operational', 'Maintenance Due', 'Under Repair', 'Decommissioned'].includes(status)) {
+        const sLow = status.toLowerCase();
+        status = sLow.includes('repair') ? 'Under Repair'
+               : sLow.includes('due') ? 'Maintenance Due'
+               : sLow.includes('decom') ? 'Decommissioned' : 'Operational';
+    }
+
+    const rawLastPM = cleanMap['lastpm'] || cleanMap['lastpmdate'] || cleanMap['installdate'] || cleanMap['calibrationdate'] || pick(['lastpm', 'install', 'service'], '');
+    const rawNextDue = cleanMap['nextdue'] || cleanMap['nextpm'] || cleanMap['nextpmduedate'] || cleanMap['duedate'] || pick(['nextdue', 'nextpm', 'due'], '');
+
+    return {
+        id: row.id || (Date.now() + idx),
+        name,
+        model,
+        serial,
+        facility,
+        dept,
+        location,
+        risk,
+        status,
+        lastPM: normalizeImportedDate(rawLastPM, 0),
+        nextDue: normalizeImportedDate(rawNextDue, 6),
+        interval: pick(['interval', 'frequency', 'schedule'], 'Semi-Annual (6 Mos)')
+    };
+}
+
+async function handleAssetDataFileImport(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const fileName = file.name.toLowerCase();
+    let rawRows = [];
+    let importedHistory = null;
+    let importedTools = null;
+    let importedCalibrations = null;
+
+    try {
+        if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls') || fileName.endsWith('.csv')) {
+            // Use SheetJS to parse .xlsx, .xls, or .csv accurately
+            const XLSX = await ensureSheetJSLoaded();
+            const arrayBuffer = await file.arrayBuffer();
+            const workbook = XLSX.read(arrayBuffer, { type: 'array', cellDates: true });
+            const firstSheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[firstSheetName];
+            rawRows = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+        } else {
+            // Parse .json or .txt
+            const text = (await file.text()).trim();
+            if (text.startsWith('{') || text.startsWith('[')) {
+                const parsed = JSON.parse(text);
+                if (Array.isArray(parsed)) {
+                    rawRows = parsed;
+                } else if (parsed && typeof parsed === 'object') {
+                    rawRows = parsed.equipmentList || parsed.equipment || parsed.assets || [];
+                    if (Array.isArray(parsed.historyLogs)) importedHistory = parsed.historyLogs;
+                    if (Array.isArray(parsed.toolLogs)) importedTools = parsed.toolLogs;
+                    if (Array.isArray(parsed.calibrationList)) importedCalibrations = parsed.calibrationList;
+                }
+            } else {
+                const XLSX = await ensureSheetJSLoaded();
+                const workbook = XLSX.read(text, { type: 'string' });
+                const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+                rawRows = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+            }
+        }
+    } catch (err) {
+        if (typeof showNotificationToast === 'function') {
+            showNotificationToast('Error reading file. Please upload a valid .xlsx, .csv, or .json file.', true);
+        }
+        return;
+    }
+
+    if ((!rawRows || rawRows.length === 0) && !importedHistory && !importedTools && !importedCalibrations) {
+        if (typeof showNotificationToast === 'function') {
+            showNotificationToast('No valid equipment rows found in the uploaded file.', true);
+        }
+        return;
+    }
+
+    if (!Array.isArray(window.equipmentList)) window.equipmentList = [];
+
+    // STEP 1: Normalize all rows & deduplicate within the uploaded file itself
+    const uniqueIncomingMap = new Map();
+    rawRows.forEach((rawRow, idx) => {
+        // Skip completely blank rows in Excel
+        const values = Object.values(rawRow || {}).map(v => String(v).trim()).filter(Boolean);
+        if (values.length === 0) return;
+
+        const mapped = mapRawRowToEquipment(rawRow, idx);
+        const sKey = normalizeSerialKey(mapped.serial);
+        const dedupKey = (sKey && !sKey.startsWith('sn')) ? `serial:${sKey}` : `comp:${normalizeCompositeKey(mapped)}`;
+
+        // Later rows in the same Excel sheet overwrite earlier duplicate rows
+        uniqueIncomingMap.set(dedupKey, mapped);
+    });
+
+    // STEP 2: Upsert into window.equipmentList (Update existing matches in place, add only new ones)
+    let addedCount = 0;
+    let updatedCount = 0;
+
+    uniqueIncomingMap.forEach(incomingItem => {
+        const incomingSerialKey = normalizeSerialKey(incomingItem.serial);
+        const incomingCompKey = normalizeCompositeKey(incomingItem);
+
+        const existingIndex = window.equipmentList.findIndex(existing => {
+            const existingSerialKey = normalizeSerialKey(existing.serial);
+            // Match 1: Same normalized Serial Number
+            if (incomingSerialKey && existingSerialKey && incomingSerialKey === existingSerialKey) {
+                return true;
+            }
+            // Match 2: Same Equipment Name + Model + Hospital Facility (when serial was edited or generic)
+            return normalizeCompositeKey(existing) === incomingCompKey;
+        });
+
+        if (existingIndex !== -1) {
+            // Update existing asset in place (keep original ID so history logs stay linked, avoid duplicate)
+            const preservedId = window.equipmentList[existingIndex].id;
+            window.equipmentList[existingIndex] = {
+                ...window.equipmentList[existingIndex],
+                ...incomingItem,
+                id: preservedId
+            };
+            updatedCount++;
+        } else {
+            // Brand new asset -> Add to inventory
+            window.equipmentList.unshift(incomingItem);
+            addedCount++;
+        }
+    });
+
+    // STEP 3: Save to localStorage and sync app.js state
+    localStorage.setItem('seiralab_equipment', JSON.stringify(window.equipmentList));
+    try {
+        if (typeof equipmentList !== 'undefined') {
+            equipmentList = window.equipmentList;
+        }
+    } catch (_) {}
+
+    if (importedHistory) {
+        window.historyLogs = importedHistory;
+        localStorage.setItem('seiralab_history', JSON.stringify(window.historyLogs));
+    }
+    if (importedTools) {
+        window.toolLogs = importedTools;
+        localStorage.setItem('seiralab_tool_logs', JSON.stringify(window.toolLogs));
+    }
+    if (importedCalibrations) {
+        window.calibrationList = importedCalibrations;
+        localStorage.setItem('seiralab_calibrations', JSON.stringify(window.calibrationList));
+    }
+
+    // STEP 4: Re-render all tables, counters, hospital filters, and notifications
+    if (typeof populateFacilityFilter === 'function') populateFacilityFilter();
+    if (typeof renderInventoryTable === 'function') renderInventoryTable();
+    if (typeof renderDashboard === 'function') renderDashboard();
+    if (typeof renderScheduleCards === 'function') renderScheduleCards();
+    if (typeof renderHistoryTable === 'function') renderHistoryTable();
+    if (typeof renderCalibrationTable === 'function') renderCalibrationTable();
+    if (typeof renderToolLogsTable === 'function') renderToolLogsTable();
+    if (typeof buildSystemNotifications === 'function') buildSystemNotifications();
+
+    const msg = `Excel/Asset Import Complete: ${addedCount} new added, ${updatedCount} existing updated (0 duplicates).`;
+    if (typeof showNotificationToast === 'function') {
+        showNotificationToast(msg);
+    }
+
+    // STEP 5: Push updated database to GitHub via Cloudflare Worker
+    if (typeof pushToGitHub === 'function') {
+        await pushToGitHub(`Import Assets (${file.name}): +${addedCount} new, ${updatedCount} updated`);
+    }
+}
+
+window.triggerAssetImportPicker = triggerAssetImportPicker;
+window.importAssetData = triggerAssetImportPicker;
+window.triggerImport = triggerAssetImportPicker;
+window.handleImportFile = handleAssetDataFileImport;
+
+window.addEventListener('DOMContentLoaded', function () {
+    ensureSheetJSLoaded().catch(() => {});
+    relocateImportAssetButtonAndFixInput();
+});
+setTimeout(relocateImportAssetButtonAndFixInput, 300);
