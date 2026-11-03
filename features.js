@@ -1141,3 +1141,403 @@ function removeRiskFromAllUI() {
 
 window.addEventListener('DOMContentLoaded', removeRiskFromAllUI);
 setTimeout(removeRiskFromAllUI, 200);
+// ============================================================================
+// 6. OFFICIAL SEIRALAB SERVICE REPORT TEMPLATE IN MAINTENANCE HISTORY & LOGS
+// Matches the physical "SERVICE REPORT" form (Koronadal / Cebu) with Print/PDF
+// ============================================================================
+
+function ensureServiceReportModalExists() {
+    if (document.getElementById('seiralabServiceReportModal')) return;
+
+    // Inject print-specific CSS so clicking Print outputs ONLY the clean A4 Service Report
+    if (!document.getElementById('seiralabServiceReportPrintStyle')) {
+        const style = document.createElement('style');
+        style.id = 'seiralabServiceReportPrintStyle';
+        style.textContent = `
+            #srPaperSheet {
+                font-family: 'Times New Roman', Times, serif;
+                color: #111827;
+            }
+            #srPaperSheet input[type="text"] {
+                font-family: 'Inter', Arial, sans-serif;
+                color: #0f172a;
+                font-weight: 600;
+            }
+            #srPaperSheet textarea {
+                font-family: 'Inter', Arial, sans-serif;
+                color: #0f172a;
+                resize: none;
+            }
+            @media print {
+                body * {
+                    visibility: hidden !important;
+                }
+                #seiralabServiceReportModal,
+                #seiralabServiceReportModal #srPaperSheet,
+                #seiralabServiceReportModal #srPaperSheet * {
+                    visibility: visible !important;
+                }
+                #seiralabServiceReportModal {
+                    position: absolute !important;
+                    inset: 0 !important;
+                    background: #ffffff !important;
+                    padding: 0 !important;
+                    margin: 0 !important;
+                    display: block !important;
+                    overflow: visible !important;
+                }
+                #srModalToolbar {
+                    display: none !important;
+                }
+                #srPaperSheet {
+                    box-shadow: none !important;
+                    border: none !important;
+                    margin: 0 auto !important;
+                    width: 100% !important;
+                    max-width: 100% !important;
+                    padding: 8mm 12mm !important;
+                }
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    const modalHTML = `
+    <div id="seiralabServiceReportModal" class="fixed inset-0 bg-slate-900/75 backdrop-blur-xs z-[120] hidden overflow-y-auto p-3 sm:p-6 flex flex-col items-center">
+        <!-- Top Action Bar (Hidden when printing) -->
+        <div id="srModalToolbar" class="w-full max-w-4xl bg-slate-900 text-white rounded-t-2xl px-5 py-3.5 flex flex-wrap items-center justify-between gap-3 border border-slate-700 shadow-xl">
+            <div class="flex items-center space-x-2.5">
+                <i data-lucide="file-text" class="w-5 h-5 text-teal-400"></i>
+                <div>
+                    <h3 class="text-sm font-bold">Seiralab Official Service Report Certificate</h3>
+                    <p class="text-[11px] text-slate-400">Click any line, checkbox, or box below to edit before printing or saving as PDF</p>
+                </div>
+            </div>
+            <div class="flex items-center space-x-2.5">
+                <button type="button" onclick="window.print()" class="px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white font-semibold text-xs rounded-lg shadow-sm inline-flex items-center space-x-1.5 cursor-pointer transition-colors">
+                    <i data-lucide="printer" class="w-4 h-4"></i>
+                    <span>Print / Save PDF</span>
+                </button>
+                <button type="button" onclick="closeServiceReportModal()" class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium text-xs rounded-lg cursor-pointer transition-colors">
+                    Close
+                </button>
+            </div>
+        </div>
+
+        <!-- Printable Paper Form (Exact Replica of Physical Seiralab Service Report) -->
+        <div id="srPaperSheet" class="w-full max-w-4xl bg-white shadow-2xl border border-slate-300 rounded-b-2xl p-6 sm:p-10 text-sm leading-snug mb-10">
+
+            <!-- Header: Logo + Seiralab Incorporated + Address -->
+            <div class="flex flex-col items-center justify-center text-center border-b border-transparent pb-1">
+                <div class="flex items-center justify-center space-x-3">
+                    <img src="./seiralab-logo.jpg" alt="Seiralab Logo" class="h-16 sm:h-20 w-auto object-contain" onerror="this.onerror=null; this.src='./seiralab-logo.gIH9ySyn.jpg';">
+                    <div class="text-center">
+                        <div class="text-2xl sm:text-3xl font-black tracking-wider uppercase italic text-slate-900" style="font-family: Arial, sans-serif; letter-spacing: 0.06em;">SEIRALAB</div>
+                        <div class="bg-slate-900 text-white text-xs sm:text-sm font-bold tracking-[0.28em] px-2 py-0.5 uppercase">INCORPORATED</div>
+                        <div class="text-[11px] sm:text-xs font-bold tracking-wider uppercase text-slate-800 mt-0.5" style="font-family: Arial, sans-serif;">DIAGNOSTIC &amp; MEDICAL EQUIPMENT</div>
+                        <div class="text-xs italic font-semibold text-slate-800">"Committed to Care"</div>
+                    </div>
+                </div>
+                <p class="text-xs sm:text-[13px] text-slate-900 mt-2">
+                    Unit 1-6, Level 2, MGM Bldg., Gensan Drive, Brgy. Sto. Niño,<br>
+                    City of Koronadal, South Cotabato, 9506
+                </p>
+            </div>
+
+            <!-- Title & Red Serial Number -->
+            <div class="relative flex items-center justify-center my-4">
+                <h2 class="text-xl sm:text-2xl font-bold tracking-wider uppercase text-slate-900">SERVICE REPORT</h2>
+                <div class="absolute right-0 sm:right-6 top-0">
+                    <input type="text" id="srReportNo" value="05535" class="w-24 sm:w-28 text-right text-xl sm:text-2xl font-mono font-bold text-rose-500/90 focus:outline-none border-b border-transparent focus:border-rose-400 bg-transparent" title="Report Serial Number">
+                </div>
+            </div>
+
+            <!-- Customer / Facility Info Lines -->
+            <div class="space-y-1.5 text-[13px]">
+                <div class="flex items-end w-full sm:w-1/2 pr-4">
+                    <span class="font-semibold shrink-0 mr-2">Date:</span>
+                    <input type="text" id="srDate" class="w-full border-b border-slate-800 px-1 py-0.5 text-xs focus:outline-none">
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-12 gap-x-6 gap-y-1.5">
+                    <div class="sm:col-span-7 flex items-end">
+                        <span class="font-semibold shrink-0 mr-2">Company Name:</span>
+                        <input type="text" id="srCompany" class="w-full border-b border-slate-800 px-1 py-0.5 text-xs focus:outline-none">
+                    </div>
+                    <div class="sm:col-span-5 flex items-end">
+                        <span class="font-semibold shrink-0 mr-2">Tel. No./Fax:</span>
+                        <input type="text" id="srTel" class="w-full border-b border-slate-800 px-1 py-0.5 text-xs focus:outline-none">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-12 gap-x-6 gap-y-1.5">
+                    <div class="sm:col-span-7 flex items-end">
+                        <span class="font-semibold shrink-0 mr-2">Contact Person:</span>
+                        <input type="text" id="srContact" class="w-full border-b border-slate-800 px-1 py-0.5 text-xs focus:outline-none">
+                    </div>
+                    <div class="sm:col-span-5 flex items-end">
+                        <span class="font-semibold shrink-0 mr-2">Department:</span>
+                        <input type="text" id="srDepartment" class="w-full border-b border-slate-800 px-1 py-0.5 text-xs focus:outline-none">
+                    </div>
+                </div>
+
+                <div class="flex items-end">
+                    <span class="font-semibold shrink-0 mr-2">Address:</span>
+                    <input type="text" id="srAddress" class="w-full border-b border-slate-800 px-1 py-0.5 text-xs focus:outline-none">
+                </div>
+
+                <div class="flex items-end pt-2">
+                    <span class="font-bold uppercase shrink-0 mr-2">COMPLAINTS:</span>
+                    <input type="text" id="srComplaints" class="w-full border-b border-slate-800 px-1 py-0.5 text-xs focus:outline-none">
+                </div>
+            </div>
+
+            <!-- Checkboxes Row -->
+            <div class="flex flex-wrap items-center justify-between gap-2 my-3 text-xs font-semibold text-slate-900 px-1">
+                <label class="inline-flex items-center space-x-1.5 cursor-pointer">
+                    <input type="checkbox" id="srChkWarranty" class="w-3.5 h-3.5 accent-slate-900">
+                    <span>Warranty</span>
+                </label>
+                <label class="inline-flex items-center space-x-1.5 cursor-pointer">
+                    <input type="checkbox" id="srChkOutWarranty" class="w-3.5 h-3.5 accent-slate-900">
+                    <span>Out or Warranty</span>
+                </label>
+                <label class="inline-flex items-center space-x-1.5 cursor-pointer">
+                    <input type="checkbox" id="srChkCheckup" class="w-3.5 h-3.5 accent-slate-900" checked>
+                    <span>Check-up</span>
+                </label>
+                <label class="inline-flex items-center space-x-1.5 cursor-pointer">
+                    <input type="checkbox" id="srChkCleaning" class="w-3.5 h-3.5 accent-slate-900" checked>
+                    <span>Cleaning Repair</span>
+                </label>
+                <label class="inline-flex items-center space-x-1.5 cursor-pointer">
+                    <input type="checkbox" id="srChkContract" class="w-3.5 h-3.5 accent-slate-900">
+                    <span>Under Contract</span>
+                </label>
+                <label class="inline-flex items-center space-x-1.5 cursor-pointer">
+                    <input type="checkbox" id="srChkOrientation" class="w-3.5 h-3.5 accent-slate-900">
+                    <span>Orientation</span>
+                </label>
+                <label class="inline-flex items-center space-x-1.5 cursor-pointer">
+                    <input type="checkbox" id="srChkDelivery" class="w-3.5 h-3.5 accent-slate-900">
+                    <span>Delivery</span>
+                </label>
+            </div>
+
+            <!-- Box 1: Equipment / Model / Serial No. / Location -->
+            <div class="border-2 border-slate-900 p-2.5 mb-3 space-y-2 text-xs">
+                <div class="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                    <div class="sm:col-span-5 flex items-end">
+                        <span class="font-bold shrink-0 mr-1.5">Equipment:</span>
+                        <input type="text" id="srEquipmentName" class="w-full border-b border-slate-800 px-1 py-0.5 focus:outline-none">
+                    </div>
+                    <div class="sm:col-span-3 flex items-end">
+                        <span class="font-bold shrink-0 mr-1.5">Model:</span>
+                        <input type="text" id="srModel" class="w-full border-b border-slate-800 px-1 py-0.5 focus:outline-none">
+                    </div>
+                    <div class="sm:col-span-4 flex items-end">
+                        <span class="font-bold shrink-0 mr-1.5">Serial No.:</span>
+                        <input type="text" id="srSerial" class="w-full border-b border-slate-800 px-1 py-0.5 font-mono focus:outline-none">
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                    <div class="sm:col-span-6 flex items-end">
+                        <span class="font-bold shrink-0 mr-1.5">Address / Area:</span>
+                        <input type="text" id="srEqArea1" class="w-full border-b border-slate-800 px-1 py-0.5 focus:outline-none">
+                    </div>
+                    <div class="sm:col-span-6 flex items-end">
+                        <span class="font-bold shrink-0 mr-1.5">Next Due / Status:</span>
+                        <input type="text" id="srEqArea2" class="w-full border-b border-slate-800 px-1 py-0.5 focus:outline-none">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Box 2: Findings | Action Taken | Amount -->
+            <div class="border-2 border-slate-900 mb-3">
+                <div class="grid grid-cols-12 border-b border-slate-900 text-xs font-bold text-center bg-slate-50/50">
+                    <div class="col-span-4 py-1 border-r border-slate-900">Findings</div>
+                    <div class="col-span-5 py-1 border-r border-slate-900">Action Taken</div>
+                    <div class="col-span-3 py-1">Amount</div>
+                </div>
+                <div class="grid grid-cols-12 h-28">
+                    <div class="col-span-4 border-r border-slate-900 p-1.5">
+                        <textarea id="srFindings" class="w-full h-full text-xs focus:outline-none bg-transparent" placeholder="Enter inspection findings..."></textarea>
+                    </div>
+                    <div class="col-span-5 border-r border-slate-900 p-1.5">
+                        <textarea id="srActionTaken" class="w-full h-full text-xs focus:outline-none bg-transparent" placeholder="Enter PM / calibration / repair actions..."></textarea>
+                    </div>
+                    <div class="col-span-3 p-1.5">
+                        <textarea id="srServiceAmount" class="w-full h-full text-xs text-center focus:outline-none bg-transparent" placeholder="N/A - PM"></textarea>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Box 3: Parts for Replacement | Amount -->
+            <div class="border-2 border-slate-900 mb-3">
+                <div class="grid grid-cols-12 border-b border-slate-900 text-xs font-bold text-center bg-slate-50/50">
+                    <div class="col-span-9 py-1 border-r border-slate-900">Parts for Replacement</div>
+                    <div class="col-span-3 py-1">Amount</div>
+                </div>
+                <div class="grid grid-cols-12 h-24">
+                    <div class="col-span-9 border-r border-slate-900 p-1.5">
+                        <textarea id="srParts" class="w-full h-full text-xs focus:outline-none bg-transparent" placeholder="None / Routine PM Consumables Only"></textarea>
+                    </div>
+                    <div class="col-span-3 p-1.5">
+                        <textarea id="srPartsAmount" class="w-full h-full text-xs text-center focus:outline-none bg-transparent"></textarea>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Box 4: Remarks / Recommendations Box -->
+            <div class="border-2 border-slate-900 mb-3 h-16 p-1.5">
+                <textarea id="srRemarks" class="w-full h-full text-xs focus:outline-none bg-transparent" placeholder="Additional Remarks / Engineer Recommendations: Equipment passed all functional & safety verification checks."></textarea>
+            </div>
+
+            <!-- Box 5: Signatures Footer (Attending Engineer/Technician | Customer Signature) -->
+            <div class="border-2 border-slate-900 grid grid-cols-1 sm:grid-cols-12 text-xs">
+                <div class="sm:col-span-6 border-b sm:border-b-0 sm:border-r border-slate-900 p-2.5 flex flex-col justify-between min-h-[90px]">
+                    <div class="pt-5 text-center">
+                        <input type="text" id="srTechnicianName" class="w-4/5 mx-auto text-center border-b border-slate-900 font-bold text-xs py-0.5 focus:outline-none">
+                        <div class="font-semibold text-slate-900 mt-0.5">Attending Engineer/Technician</div>
+                    </div>
+                    <div class="flex items-end mt-2">
+                        <span class="font-semibold mr-1.5">Date:</span>
+                        <input type="text" id="srTechDate" class="w-40 border-b border-slate-800 px-1 text-xs focus:outline-none">
+                    </div>
+                </div>
+
+                <div class="sm:col-span-6 p-2.5 flex flex-col justify-between min-h-[90px]">
+                    <div class="text-[11px] font-semibold text-slate-900">I hereby acknowledged the above service/s rendered:</div>
+                    <div class="pt-3 text-center">
+                        <input type="text" id="srCustomerSign" placeholder=" " class="w-4/5 mx-auto text-center border-b border-slate-900 font-bold text-xs py-0.5 focus:outline-none">
+                        <div class="font-semibold text-slate-900 mt-0.5">Customer Signature Over Printed Name</div>
+                    </div>
+                    <div class="flex items-end mt-1">
+                        <span class="font-semibold mr-1.5">Date:</span>
+                        <input type="text" id="srCustomerDate" class="w-40 border-b border-slate-800 px-1 text-xs focus:outline-none">
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>`;
+
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+    if (window.lucide) lucide.createIcons();
+}
+
+function openServiceReportTemplate(logId) {
+    ensureServiceReportModalExists();
+
+    const logs = window.historyLogs || JSON.parse(localStorage.getItem('seiralab_history') || '[]');
+    const eqList = window.equipmentList || JSON.parse(localStorage.getItem('seiralab_equipment') || '[]');
+
+    const log = logs.find(l => String(l.id) === String(logId)) || null;
+
+    // Try matching the full equipment item for extra details (Dept, Model, Location, Next Due)
+    let matchedEq = null;
+    if (log) {
+        matchedEq = eqList.find(e =>
+            (log.serial && String(e.serial).toLowerCase() === String(log.serial).toLowerCase()) ||
+            (log.eqName && String(e.name).toLowerCase() === String(log.eqName).toLowerCase())
+        );
+    }
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    const reportNumber = log
+        ? String(5500 + (Math.abs( parseInt(String(log.id).slice(-3), 10) || 35 ))).padStart(5, '0')
+        : '05535';
+
+    document.getElementById('srReportNo').value = reportNumber;
+    document.getElementById('srDate').value = log?.date || todayStr;
+    document.getElementById('srCompany').value = log?.facility || matchedEq?.facility || 'Cebu City Medical Center';
+    document.getElementById('srTel').value = '';
+    document.getElementById('srContact').value = '';
+    document.getElementById('srDepartment').value = matchedEq?.dept || 'Clinical Laboratory';
+    document.getElementById('srAddress').value = matchedEq?.location || log?.facility || 'Cebu City';
+    document.getElementById('srComplaints').value = log?.type || 'Scheduled Preventive Maintenance & Verification';
+
+    document.getElementById('srEquipmentName').value = log?.eqName || matchedEq?.name || '';
+    document.getElementById('srModel').value = matchedEq?.model || log?.model || '';
+    document.getElementById('srSerial').value = log?.serial || matchedEq?.serial || '';
+    document.getElementById('srEqArea1').value = matchedEq?.location || log?.facility || '';
+    document.getElementById('srEqArea2').value = matchedEq?.nextDue ? `Next PM Due: ${matchedEq.nextDue} (Passed)` : 'Operational / Passed';
+
+    document.getElementById('srFindings').value = 'Unit inspected and tested. Optical, mechanical, and electrical parameters within manufacturer specifications.';
+    document.getElementById('srActionTaken').value = log?.notes || 'Performed complete Preventive Maintenance, internal/external cleaning, sensor verification, and safety testing.';
+    document.getElementById('srServiceAmount').value = 'INCLUDED (PM)';
+    document.getElementById('srParts').value = 'None required';
+    document.getElementById('srPartsAmount').value = '';
+    document.getElementById('srRemarks').value = 'Equipment is certified operational and ready for clinical diagnostic use.';
+
+    document.getElementById('srTechnicianName').value = log?.tech || 'Eng. Barzce Barcelona';
+    document.getElementById('srTechDate').value = log?.date || todayStr;
+    document.getElementById('srCustomerSign').value = '';
+    document.getElementById('srCustomerDate').value = log?.date || todayStr;
+
+    document.getElementById('seiralabServiceReportModal')?.classList.remove('hidden');
+    if (window.lucide) lucide.createIcons();
+}
+
+function closeServiceReportModal() {
+    document.getElementById('seiralabServiceReportModal')?.classList.add('hidden');
+}
+
+// Upgrade the Maintenance History & Logs tab so every row has the "Service Report" button
+function upgradeMaintenanceHistoryCertificateButtons() {
+    ensureServiceReportModalExists();
+
+    // 1. Add a "+ Blank Service Report" button to the Maintenance History header toolbar
+    const historySection = document.getElementById('history');
+    if (historySection) {
+        const headerContainer = historySection.querySelector('div:first-child');
+        if (headerContainer && !document.getElementById('btnOpenBlankServiceReport')) {
+            let btnGroup = headerContainer.querySelector('div:nth-child(2)') || headerContainer;
+            const blankBtn = document.createElement('button');
+            blankBtn.type = 'button';
+            blankBtn.id = 'btnOpenBlankServiceReport';
+            blankBtn.onclick = () => openServiceReportTemplate(null);
+            blankBtn.className = 'inline-flex items-center justify-center px-3.5 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg font-medium text-xs sm:text-sm shadow-xs transition-all space-x-1.5 whitespace-nowrap cursor-pointer mr-2';
+            blankBtn.innerHTML = `
+                <i data-lucide="file-Spreadsheet" class="w-4 h-4"></i>
+                <span>Service Report Form</span>
+            `;
+            btnGroup.insertBefore(blankBtn, btnGroup.firstChild);
+        }
+    }
+
+    // 2. Override downloadCertificate in app.js so clicking "Certificate" or "Service Report" opens this template
+    window.downloadCertificate = function (logId) {
+        openServiceReportTemplate(logId);
+    };
+
+    // 3. Relabel any "Certificate" / "Download" buttons inside #historyTableBody to "Service Report"
+    const historyTbody = document.getElementById('historyTableBody');
+    if (historyTbody) {
+        historyTbody.querySelectorAll('button').forEach(btn => {
+            const txt = btn.innerText.trim();
+            if (txt.includes('Certificate') || txt.includes('Download') || txt.includes('Report')) {
+                btn.className = 'px-3 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-700 border border-teal-200 rounded-lg font-semibold text-xs inline-flex items-center space-x-1.5 transition-colors cursor-pointer';
+                btn.innerHTML = `<i data-lucide="printer" class="w-3.5 h-3.5"></i><span>Service Report</span>`;
+            }
+        });
+    }
+    if (window.lucide) lucide.createIcons();
+}
+
+// Wrap renderHistoryTable so whenever history rows re-render, the Service Report buttons stay upgraded
+const origRenderHistoryTable = window.renderHistoryTable;
+if (typeof origRenderHistoryTable === 'function') {
+    window.renderHistoryTable = function () {
+        origRenderHistoryTable.apply(this, arguments);
+        upgradeMaintenanceHistoryCertificateButtons();
+    };
+}
+
+window.openServiceReportTemplate = openServiceReportTemplate;
+window.closeServiceReportModal = closeServiceReportModal;
+
+window.addEventListener('DOMContentLoaded', function () {
+    setTimeout(upgradeMaintenanceHistoryCertificateButtons, 250);
+});
+setTimeout(upgradeMaintenanceHistoryCertificateButtons, 400);
