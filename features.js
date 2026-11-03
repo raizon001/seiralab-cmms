@@ -1143,13 +1143,12 @@ window.addEventListener('DOMContentLoaded', removeRiskFromAllUI);
 setTimeout(removeRiskFromAllUI, 200);
 // ============================================================================
 // 6. OFFICIAL SEIRALAB SERVICE REPORT TEMPLATE IN MAINTENANCE HISTORY & LOGS
-// Matches the physical "SERVICE REPORT" form (Koronadal / Cebu) with Print/PDF
+// Cleaned header (single logo banner) + blank Findings, Action Taken & Amount
 // ============================================================================
 
 function ensureServiceReportModalExists() {
     if (document.getElementById('seiralabServiceReportModal')) return;
 
-    // Inject print-specific CSS so clicking Print outputs ONLY the clean A4 Service Report
     if (!document.getElementById('seiralabServiceReportPrintStyle')) {
         const style = document.createElement('style');
         style.id = 'seiralabServiceReportPrintStyle';
@@ -1210,7 +1209,7 @@ function ensureServiceReportModalExists() {
                 <i data-lucide="file-text" class="w-5 h-5 text-teal-400"></i>
                 <div>
                     <h3 class="text-sm font-bold">Seiralab Official Service Report Certificate</h3>
-                    <p class="text-[11px] text-slate-400">Click any line, checkbox, or box below to edit before printing or saving as PDF</p>
+                    <p class="text-[11px] text-slate-400">Click any line, checkbox, or box below to fill in details before printing or saving as PDF</p>
                 </div>
             </div>
             <div class="flex items-center space-x-2.5">
@@ -1224,21 +1223,13 @@ function ensureServiceReportModalExists() {
             </div>
         </div>
 
-        <!-- Printable Paper Form (Exact Replica of Physical Seiralab Service Report) -->
+        <!-- Printable Paper Form -->
         <div id="srPaperSheet" class="w-full max-w-4xl bg-white shadow-2xl border border-slate-300 rounded-b-2xl p-6 sm:p-10 text-sm leading-snug mb-10">
 
-            <!-- Header: Logo + Seiralab Incorporated + Address -->
-            <div class="flex flex-col items-center justify-center text-center border-b border-transparent pb-1">
-                <div class="flex items-center justify-center space-x-3">
-                    <img src="./seiralab-logo.jpg" alt="Seiralab Logo" class="h-16 sm:h-20 w-auto object-contain" onerror="this.onerror=null; this.src='./seiralab-logo.gIH9ySyn.jpg';">
-                    <div class="text-center">
-                        <div class="text-2xl sm:text-3xl font-black tracking-wider uppercase italic text-slate-900" style="font-family: Arial, sans-serif; letter-spacing: 0.06em;">SEIRALAB</div>
-                        <div class="bg-slate-900 text-white text-xs sm:text-sm font-bold tracking-[0.28em] px-2 py-0.5 uppercase">INCORPORATED</div>
-                        <div class="text-[11px] sm:text-xs font-bold tracking-wider uppercase text-slate-800 mt-0.5" style="font-family: Arial, sans-serif;">DIAGNOSTIC &amp; MEDICAL EQUIPMENT</div>
-                        <div class="text-xs italic font-semibold text-slate-800">"Committed to Care"</div>
-                    </div>
-                </div>
-                <p class="text-xs sm:text-[13px] text-slate-900 mt-2">
+            <!-- Header: Centered Official Seiralab Banner Logo Only (Duplicate Text Removed) -->
+            <div class="flex flex-col items-center justify-center text-center pb-1">
+                <img src="./seiralab-logo.jpg" alt="Seiralab Incorporated" class="h-20 sm:h-24 w-auto object-contain mx-auto" onerror="this.onerror=null; this.src='./seiralab-logo.gIH9ySyn.jpg';">
+                <p class="text-xs sm:text-[13px] text-slate-900 mt-1.5">
                     Unit 1-6, Level 2, MGM Bldg., Gensan Drive, Brgy. Sto. Niño,<br>
                     City of Koronadal, South Cotabato, 9506
                 </p>
@@ -1303,11 +1294,11 @@ function ensureServiceReportModalExists() {
                     <span>Out or Warranty</span>
                 </label>
                 <label class="inline-flex items-center space-x-1.5 cursor-pointer">
-                    <input type="checkbox" id="srChkCheckup" class="w-3.5 h-3.5 accent-slate-900" checked>
+                    <input type="checkbox" id="srChkCheckup" class="w-3.5 h-3.5 accent-slate-900">
                     <span>Check-up</span>
                 </label>
                 <label class="inline-flex items-center space-x-1.5 cursor-pointer">
-                    <input type="checkbox" id="srChkCleaning" class="w-3.5 h-3.5 accent-slate-900" checked>
+                    <input type="checkbox" id="srChkCleaning" class="w-3.5 h-3.5 accent-slate-900">
                     <span>Cleaning Repair</span>
                 </label>
                 <label class="inline-flex items-center space-x-1.5 cursor-pointer">
@@ -1352,7 +1343,7 @@ function ensureServiceReportModalExists() {
                 </div>
             </div>
 
-            <!-- Box 2: Findings | Action Taken | Amount -->
+            <!-- Box 2: Findings | Action Taken | Amount (Clean & Empty by Default) -->
             <div class="border-2 border-slate-900 mb-3">
                 <div class="grid grid-cols-12 border-b border-slate-900 text-xs font-bold text-center bg-slate-50/50">
                     <div class="col-span-4 py-1 border-r border-slate-900">Findings</div>
@@ -1361,13 +1352,13 @@ function ensureServiceReportModalExists() {
                 </div>
                 <div class="grid grid-cols-12 h-28">
                     <div class="col-span-4 border-r border-slate-900 p-1.5">
-                        <textarea id="srFindings" class="w-full h-full text-xs focus:outline-none bg-transparent" placeholder="Enter inspection findings..."></textarea>
+                        <textarea id="srFindings" class="w-full h-full text-xs focus:outline-none bg-transparent"></textarea>
                     </div>
                     <div class="col-span-5 border-r border-slate-900 p-1.5">
-                        <textarea id="srActionTaken" class="w-full h-full text-xs focus:outline-none bg-transparent" placeholder="Enter PM / calibration / repair actions..."></textarea>
+                        <textarea id="srActionTaken" class="w-full h-full text-xs focus:outline-none bg-transparent"></textarea>
                     </div>
                     <div class="col-span-3 p-1.5">
-                        <textarea id="srServiceAmount" class="w-full h-full text-xs text-center focus:outline-none bg-transparent" placeholder="N/A - PM"></textarea>
+                        <textarea id="srServiceAmount" class="w-full h-full text-xs text-center focus:outline-none bg-transparent"></textarea>
                     </div>
                 </div>
             </div>
@@ -1380,7 +1371,7 @@ function ensureServiceReportModalExists() {
                 </div>
                 <div class="grid grid-cols-12 h-24">
                     <div class="col-span-9 border-r border-slate-900 p-1.5">
-                        <textarea id="srParts" class="w-full h-full text-xs focus:outline-none bg-transparent" placeholder="None / Routine PM Consumables Only"></textarea>
+                        <textarea id="srParts" class="w-full h-full text-xs focus:outline-none bg-transparent"></textarea>
                     </div>
                     <div class="col-span-3 p-1.5">
                         <textarea id="srPartsAmount" class="w-full h-full text-xs text-center focus:outline-none bg-transparent"></textarea>
@@ -1390,7 +1381,7 @@ function ensureServiceReportModalExists() {
 
             <!-- Box 4: Remarks / Recommendations Box -->
             <div class="border-2 border-slate-900 mb-3 h-16 p-1.5">
-                <textarea id="srRemarks" class="w-full h-full text-xs focus:outline-none bg-transparent" placeholder="Additional Remarks / Engineer Recommendations: Equipment passed all functional & safety verification checks."></textarea>
+                <textarea id="srRemarks" class="w-full h-full text-xs focus:outline-none bg-transparent"></textarea>
             </div>
 
             <!-- Box 5: Signatures Footer (Attending Engineer/Technician | Customer Signature) -->
@@ -1409,7 +1400,7 @@ function ensureServiceReportModalExists() {
                 <div class="sm:col-span-6 p-2.5 flex flex-col justify-between min-h-[90px]">
                     <div class="text-[11px] font-semibold text-slate-900">I hereby acknowledged the above service/s rendered:</div>
                     <div class="pt-3 text-center">
-                        <input type="text" id="srCustomerSign" placeholder=" " class="w-4/5 mx-auto text-center border-b border-slate-900 font-bold text-xs py-0.5 focus:outline-none">
+                        <input type="text" id="srCustomerSign" class="w-4/5 mx-auto text-center border-b border-slate-900 font-bold text-xs py-0.5 focus:outline-none">
                         <div class="font-semibold text-slate-900 mt-0.5">Customer Signature Over Printed Name</div>
                     </div>
                     <div class="flex items-end mt-1">
@@ -1434,7 +1425,6 @@ function openServiceReportTemplate(logId) {
 
     const log = logs.find(l => String(l.id) === String(logId)) || null;
 
-    // Try matching the full equipment item for extra details (Dept, Model, Location, Next Due)
     let matchedEq = null;
     if (log) {
         matchedEq = eqList.find(e =>
@@ -1445,32 +1435,33 @@ function openServiceReportTemplate(logId) {
 
     const todayStr = new Date().toISOString().split('T')[0];
     const reportNumber = log
-        ? String(5500 + (Math.abs( parseInt(String(log.id).slice(-3), 10) || 35 ))).padStart(5, '0')
+        ? String(5500 + (Math.abs(parseInt(String(log.id).slice(-3), 10) || 35))).padStart(5, '0')
         : '05535';
 
     document.getElementById('srReportNo').value = reportNumber;
     document.getElementById('srDate').value = log?.date || todayStr;
-    document.getElementById('srCompany').value = log?.facility || matchedEq?.facility || 'Cebu City Medical Center';
+    document.getElementById('srCompany').value = log?.facility || matchedEq?.facility || '';
     document.getElementById('srTel').value = '';
     document.getElementById('srContact').value = '';
-    document.getElementById('srDepartment').value = matchedEq?.dept || 'Clinical Laboratory';
-    document.getElementById('srAddress').value = matchedEq?.location || log?.facility || 'Cebu City';
-    document.getElementById('srComplaints').value = log?.type || 'Scheduled Preventive Maintenance & Verification';
+    document.getElementById('srDepartment').value = matchedEq?.dept || '';
+    document.getElementById('srAddress').value = matchedEq?.location || log?.facility || '';
+    document.getElementById('srComplaints').value = log?.type || '';
 
     document.getElementById('srEquipmentName').value = log?.eqName || matchedEq?.name || '';
     document.getElementById('srModel').value = matchedEq?.model || log?.model || '';
     document.getElementById('srSerial').value = log?.serial || matchedEq?.serial || '';
     document.getElementById('srEqArea1').value = matchedEq?.location || log?.facility || '';
-    document.getElementById('srEqArea2').value = matchedEq?.nextDue ? `Next PM Due: ${matchedEq.nextDue} (Passed)` : 'Operational / Passed';
+    document.getElementById('srEqArea2').value = matchedEq?.nextDue ? `Next PM Due: ${matchedEq.nextDue}` : '';
 
-    document.getElementById('srFindings').value = 'Unit inspected and tested. Optical, mechanical, and electrical parameters within manufacturer specifications.';
-    document.getElementById('srActionTaken').value = log?.notes || 'Performed complete Preventive Maintenance, internal/external cleaning, sensor verification, and safety testing.';
-    document.getElementById('srServiceAmount').value = 'INCLUDED (PM)';
-    document.getElementById('srParts').value = 'None required';
+    // Keep Findings, Action Taken, Amount, Parts, and Remarks clean (no pre-filled boilerplate text)
+    document.getElementById('srFindings').value = '';
+    document.getElementById('srActionTaken').value = log?.notes || '';
+    document.getElementById('srServiceAmount').value = '';
+    document.getElementById('srParts').value = '';
     document.getElementById('srPartsAmount').value = '';
-    document.getElementById('srRemarks').value = 'Equipment is certified operational and ready for clinical diagnostic use.';
+    document.getElementById('srRemarks').value = '';
 
-    document.getElementById('srTechnicianName').value = log?.tech || 'Eng. Barzce Barcelona';
+    document.getElementById('srTechnicianName').value = log?.tech || '';
     document.getElementById('srTechDate').value = log?.date || todayStr;
     document.getElementById('srCustomerSign').value = '';
     document.getElementById('srCustomerDate').value = log?.date || todayStr;
@@ -1483,11 +1474,9 @@ function closeServiceReportModal() {
     document.getElementById('seiralabServiceReportModal')?.classList.add('hidden');
 }
 
-// Upgrade the Maintenance History & Logs tab so every row has the "Service Report" button
 function upgradeMaintenanceHistoryCertificateButtons() {
     ensureServiceReportModalExists();
 
-    // 1. Add a "+ Blank Service Report" button to the Maintenance History header toolbar
     const historySection = document.getElementById('history');
     if (historySection) {
         const headerContainer = historySection.querySelector('div:first-child');
@@ -1499,19 +1488,17 @@ function upgradeMaintenanceHistoryCertificateButtons() {
             blankBtn.onclick = () => openServiceReportTemplate(null);
             blankBtn.className = 'inline-flex items-center justify-center px-3.5 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg font-medium text-xs sm:text-sm shadow-xs transition-all space-x-1.5 whitespace-nowrap cursor-pointer mr-2';
             blankBtn.innerHTML = `
-                <i data-lucide="file-Spreadsheet" class="w-4 h-4"></i>
+                <i data-lucide="file-spreadsheet" class="w-4 h-4"></i>
                 <span>Service Report Form</span>
             `;
             btnGroup.insertBefore(blankBtn, btnGroup.firstChild);
         }
     }
 
-    // 2. Override downloadCertificate in app.js so clicking "Certificate" or "Service Report" opens this template
     window.downloadCertificate = function (logId) {
         openServiceReportTemplate(logId);
     };
 
-    // 3. Relabel any "Certificate" / "Download" buttons inside #historyTableBody to "Service Report"
     const historyTbody = document.getElementById('historyTableBody');
     if (historyTbody) {
         historyTbody.querySelectorAll('button').forEach(btn => {
@@ -1525,7 +1512,6 @@ function upgradeMaintenanceHistoryCertificateButtons() {
     if (window.lucide) lucide.createIcons();
 }
 
-// Wrap renderHistoryTable so whenever history rows re-render, the Service Report buttons stay upgraded
 const origRenderHistoryTable = window.renderHistoryTable;
 if (typeof origRenderHistoryTable === 'function') {
     window.renderHistoryTable = function () {
