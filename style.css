@@ -177,3 +177,15 @@ nav .overflow-x-auto::-webkit-scrollbar-thumb {
         padding-right: 0.5rem !important;
     }
 }
+
+/* Hide Risk Level column (3rd column) in System Dashboard table */
+#dashboard table th:nth-child(3),
+#dashboard table td:nth-child(3) {
+    display: none !important;
+}
+
+/* Hide RISK column (5th column) in Equipment Inventory Management table */
+#inventory table th:nth-child(5),
+#inventory table td:nth-child(5) {
+    display: none !important;
+}
