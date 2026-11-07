@@ -2419,5 +2419,3 @@ window.addEventListener('DOMContentLoaded', function () {
     setTimeout(upgradeMaintenanceHistoryCertificateButtons, 250);
 });
 setTimeout(upgradeMaintenanceHistoryCertificateButtons, 400);
-});
-setTimeout(upgradeMaintenanceHistoryCertificateButtons, 400);
