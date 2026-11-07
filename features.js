@@ -1256,9 +1256,75 @@ window.addEventListener('DOMContentLoaded', removeRiskFromAllUI);
 setTimeout(removeRiskFromAllUI, 200);
 
 // ============================================================================
-// 6. OFFICIAL SEIRALAB SERVICE REPORT TEMPLATE IN MAINTENANCE HISTORY & LOGS
-// Single centered banner logo + blank Findings, Action Taken & Amount boxes
+// 6. SEIRALAB SERVICE REPORT SERIES ENGINE (REGISTER + VIEW + HEAD/ADMIN EDIT)
+// Sequential non-duplicating series (05535+) & Head/Admin authorization lock
 // ============================================================================
+
+let currentServiceReportMode = 'register'; // 'register' | 'view' | 'edit'
+let currentEditingLogId = null;
+let tempSupervisorAuthorized = false;
+
+function isHeadOrAdminRole() {
+    const role = window.currentAccessRole || sessionStorage.getItem('seiralab_active_session_role') || 'Visitor';
+    return role === 'Head Technical' || role === 'MasterAdmin';
+}
+
+// Ensure every existing history log has a unique, sequential reportNo (05535, 05536, ...)
+function ensureSequentialReportNumbers() {
+    if (!Array.isArray(window.historyLogs)) {
+        window.historyLogs = JSON.parse(localStorage.getItem('seiralab_history') || '[]');
+    }
+
+    const usedNumbers = new Set();
+    let maxNum = 5534;
+
+    // First pass: collect existing valid report numbers
+    window.historyLogs.forEach(log => {
+        if (log.reportNo && /^\d+$/.test(String(log.reportNo).trim())) {
+            const num = parseInt(String(log.reportNo).trim(), 10);
+            if (!usedNumbers.has(num)) {
+                usedNumbers.add(num);
+                if (num > maxNum) maxNum = num;
+            } else {
+                // Duplicate found -> clear so second pass assigns a unique one
+                log.reportNo = '';
+            }
+        }
+    });
+
+    // Second pass (oldest to newest): assign sequential numbers to any log missing one
+    let changed = false;
+    for (let i = window.historyLogs.length - 1; i >= 0; i--) {
+        const log = window.historyLogs[i];
+        if (!log.reportNo || !/^\d+$/.test(String(log.reportNo).trim())) {
+            maxNum++;
+            while (usedNumbers.has(maxNum)) {
+                maxNum++;
+            }
+            log.reportNo = String(maxNum).padStart(5, '0');
+            usedNumbers.add(maxNum);
+            changed = true;
+        }
+    }
+
+    if (changed) {
+        localStorage.setItem('seiralab_history', JSON.stringify(window.historyLogs));
+    }
+}
+
+// Get the next available non-duplicate 5-digit series number (e.g., "05535", "05536")
+function getNextAvailableServiceReportNo() {
+    ensureSequentialReportNumbers();
+    let maxNum = 5534;
+    (window.historyLogs || []).forEach(log => {
+        const num = parseInt(String(log.reportNo || '0'), 10);
+        if (!isNaN(num) && num > maxNum) {
+            maxNum = num;
+        }
+    });
+    return String(maxNum + 1).padStart(5, '0');
+}
+
 function ensureServiceReportModalExists() {
     if (document.getElementById('seiralabServiceReportModal')) return;
 
@@ -1279,6 +1345,14 @@ function ensureServiceReportModalExists() {
                 font-family: 'Inter', Arial, sans-serif;
                 color: #0f172a;
                 resize: none;
+            }
+            #srPaperSheet.sr-readonly-mode input[type="text"],
+            #srPaperSheet.sr-readonly-mode textarea {
+                pointer-events: none;
+                user-select: text;
+            }
+            #srPaperSheet.sr-readonly-mode input[type="checkbox"] {
+                pointer-events: none;
             }
             @media print {
                 body * {
@@ -1321,16 +1395,27 @@ function ensureServiceReportModalExists() {
             <div class="flex items-center space-x-2.5">
                 <i data-lucide="file-text" class="w-5 h-5 text-teal-400"></i>
                 <div>
-                    <h3 class="text-sm font-bold">Seiralab Official Service Report Certificate</h3>
-                    <p class="text-[11px] text-slate-400">Click any line, checkbox, or box below to fill in details before printing or saving as PDF</p>
+                    <div class="flex items-center space-x-2">
+                        <h3 id="srModalTitleText" class="text-sm font-bold">Seiralab Official Service Report</h3>
+                        <span id="srModeBadge" class="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-full bg-teal-500/20 text-teal-300 border border-teal-500/40">New Registration</span>
+                    </div>
+                    <p id="srModalSubtitleText" class="text-[11px] text-slate-400">Fill out the details below and click Register to save to Maintenance History</p>
                 </div>
             </div>
-            <div class="flex items-center space-x-2.5">
-                <button type="button" onclick="window.print()" class="px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white font-semibold text-xs rounded-lg shadow-sm inline-flex items-center space-x-1.5 cursor-pointer transition-colors">
-                    <i data-lucide="printer" class="w-4 h-4"></i>
-                    <span>Print / Save PDF</span>
+            <div class="flex items-center space-x-2">
+                <button type="button" id="srBtnUnlockEdit" onclick="requestEditServiceReport(currentEditingLogId)" class="hidden px-3.5 py-2 bg-amber-600 hover:bg-amber-500 text-white font-semibold text-xs rounded-lg shadow-sm inline-flex items-center space-x-1.5 cursor-pointer transition-colors">
+                    <i data-lucide="lock" class="w-3.5 h-3.5"></i>
+                    <span>Edit (Head / Admin)</span>
                 </button>
-                <button type="button" onclick="closeServiceReportModal()" class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium text-xs rounded-lg cursor-pointer transition-colors">
+                <button type="button" id="srBtnSaveReport" onclick="saveRegisteredServiceReport()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded-lg shadow-sm inline-flex items-center space-x-1.5 cursor-pointer transition-colors">
+                    <i data-lucide="check-circle-2" class="w-4 h-4"></i>
+                    <span id="srBtnSaveLabel">Register Service Report</span>
+                </button>
+                <button type="button" onclick="window.print()" class="px-3.5 py-2 bg-teal-600 hover:bg-teal-500 text-white font-semibold text-xs rounded-lg shadow-sm inline-flex items-center space-x-1.5 cursor-pointer transition-colors">
+                    <i data-lucide="printer" class="w-4 h-4"></i>
+                    <span>Print / PDF</span>
+                </button>
+                <button type="button" onclick="closeServiceReportModal()" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium text-xs rounded-lg cursor-pointer transition-colors">
                     Close
                 </button>
             </div>
@@ -1348,11 +1433,11 @@ function ensureServiceReportModalExists() {
                 </p>
             </div>
 
-            <!-- Title & Red Serial Number -->
+            <!-- Title & Locked Sequential Serial Number -->
             <div class="relative flex items-center justify-center my-4">
                 <h2 class="text-xl sm:text-2xl font-bold tracking-wider uppercase text-slate-900">SERVICE REPORT</h2>
                 <div class="absolute right-0 sm:right-6 top-0">
-                    <input type="text" id="srReportNo" value="05535" class="w-24 sm:w-28 text-right text-xl sm:text-2xl font-mono font-bold text-rose-500/90 focus:outline-none border-b border-transparent focus:border-rose-400 bg-transparent" title="Report Serial Number">
+                    <input type="text" id="srReportNo" value="05535" readonly class="w-24 sm:w-28 text-right text-xl sm:text-2xl font-mono font-bold text-slate-900 focus:outline-none bg-transparent cursor-not-allowed" title="Auto-Generated Series Number (Non-Duplicating)">
                 </div>
             </div>
 
@@ -1456,7 +1541,7 @@ function ensureServiceReportModalExists() {
                 </div>
             </div>
 
-            <!-- Box 2: Findings | Action Taken | Amount (Clean & Empty by Default) -->
+            <!-- Box 2: Findings | Action Taken | Amount -->
             <div class="border-2 border-slate-900 mb-3">
                 <div class="grid grid-cols-12 border-b border-slate-900 text-xs font-bold text-center bg-slate-50/50">
                     <div class="col-span-4 py-1 border-r border-slate-900">Findings</div>
@@ -1497,7 +1582,7 @@ function ensureServiceReportModalExists() {
                 <textarea id="srRemarks" class="w-full h-full text-xs focus:outline-none bg-transparent"></textarea>
             </div>
 
-            <!-- Box 5: Signatures Footer (Attending Engineer/Technician | Customer Signature) -->
+            <!-- Box 5: Signatures Footer -->
             <div class="border-2 border-slate-900 grid grid-cols-1 sm:grid-cols-12 text-xs">
                 <div class="sm:col-span-6 border-b sm:border-b-0 sm:border-r border-slate-900 p-2.5 flex flex-col justify-between min-h-[90px]">
                     <div class="pt-5 text-center">
@@ -1524,20 +1609,80 @@ function ensureServiceReportModalExists() {
             </div>
 
         </div>
+    </div>
+
+    <!-- Head Technical / MasterAdmin Permission Modal for Editing Registered Service Reports -->
+    <div id="srSupervisorAuthModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-xs z-[130] hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div class="flex items-center space-x-2.5">
+                    <div class="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center">
+                        <i data-lucide="shield-alert" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h4 class="text-sm font-bold text-slate-900">Head / Admin Permission Required</h4>
+                        <p class="text-[11px] text-slate-500">Editing a registered Service Report requires authorization</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeSupervisorAuthModal()" class="text-slate-400 hover:text-slate-600 p-1">
+                    <i data-lucide="x" class="w-4 h-4"></i>
+                </button>
+            </div>
+            <form onsubmit="submitSupervisorEditApproval(event)" class="space-y-4 pt-4">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Approving Role</label>
+                    <select id="srAuthRoleSelect" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500">
+                        <option value="Head Technical">Head Technical</option>
+                        <option value="MasterAdmin">MasterAdmin</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Authorization Password *</label>
+                    <input type="password" id="srAuthPasswordInput" required placeholder="Enter Head or Admin password" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-teal-500">
+                </div>
+                <p id="srAuthErrorMsg" class="hidden text-xs font-semibold text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2"></p>
+                <div class="pt-2 flex items-center justify-end space-x-2.5">
+                    <button type="button" onclick="closeSupervisorAuthModal()" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold cursor-pointer">Cancel</button>
+                    <button type="submit" class="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-semibold shadow-sm cursor-pointer">Authorize &amp; Unlock Edit</button>
+                </div>
+            </form>
+        </div>
     </div>`;
 
     document.body.insertAdjacentHTML('beforeend', modalHTML);
     if (window.lucide) lucide.createIcons();
 }
 
-function openServiceReportTemplate(logId) {
-    ensureServiceReportModalExists();
+function setServiceReportReadOnlyState(isReadOnly) {
+    const sheet = document.getElementById('srPaperSheet');
+    if (!sheet) return;
 
-    const logs = window.historyLogs || JSON.parse(localStorage.getItem('seiralab_history') || '[]');
+    sheet.classList.toggle('sr-readonly-mode', isReadOnly);
+
+    const editableIds = [
+        'srDate', 'srCompany', 'srTel', 'srContact', 'srDepartment', 'srAddress', 'srComplaints',
+        'srEquipmentName', 'srModel', 'srSerial', 'srEqArea1', 'srEqArea2',
+        'srFindings', 'srActionTaken', 'srServiceAmount', 'srParts', 'srPartsAmount', 'srRemarks',
+        'srTechnicianName', 'srTechDate', 'srCustomerSign', 'srCustomerDate'
+    ];
+    editableIds.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.readOnly = isReadOnly;
+    });
+
+    const checkboxIds = [
+        'srChkWarranty', 'srChkOutWarranty', 'srChkCheckup', 'srChkCleaning',
+        'srChkContract', 'srChkOrientation', 'srChkDelivery'
+    ];
+    checkboxIds.forEach(id => {
+        const chk = document.getElementById(id);
+        if (chk) chk.disabled = isReadOnly;
+    });
+}
+
+// Populate or clear form fields from a Maintenance History log object
+function populateServiceReportFields(log, reportNumber) {
     const eqList = window.equipmentList || JSON.parse(localStorage.getItem('seiralab_equipment') || '[]');
-
-    const log = logs.find(l => String(l.id) === String(logId)) || null;
-
     let matchedEq = null;
     if (log) {
         matchedEq = eqList.find(e =>
@@ -1546,80 +1691,399 @@ function openServiceReportTemplate(logId) {
         );
     }
 
+    const details = log?.srDetails || {};
     const todayStr = new Date().toISOString().split('T')[0];
-    const reportNumber = log
-        ? String(5500 + (Math.abs(parseInt(String(log.id).slice(-3), 10) || 35))).padStart(5, '0')
-        : '05535';
 
     document.getElementById('srReportNo').value = reportNumber;
-    document.getElementById('srDate').value = log?.date || todayStr;
-    document.getElementById('srCompany').value = log?.facility || matchedEq?.facility || '';
-    document.getElementById('srTel').value = '';
-    document.getElementById('srContact').value = '';
-    document.getElementById('srDepartment').value = matchedEq?.dept || '';
-    document.getElementById('srAddress').value = matchedEq?.location || log?.facility || '';
-    document.getElementById('srComplaints').value = log?.type || '';
+    document.getElementById('srDate').value = details.date ?? log?.date ?? todayStr;
+    document.getElementById('srCompany').value = details.company ?? log?.facility ?? matchedEq?.facility ?? '';
+    document.getElementById('srTel').value = details.tel ?? '';
+    document.getElementById('srContact').value = details.contact ?? '';
+    document.getElementById('srDepartment').value = details.department ?? matchedEq?.department ?? matchedEq?.dept ?? '';
+    document.getElementById('srAddress').value = details.address ?? matchedEq?.location ?? '';
+    document.getElementById('srComplaints').value = details.complaints ?? log?.type ?? '';
 
-    document.getElementById('srEquipmentName').value = log?.eqName || matchedEq?.name || '';
-    document.getElementById('srModel').value = matchedEq?.model || log?.model || '';
-    document.getElementById('srSerial').value = log?.serial || matchedEq?.serial || '';
-    document.getElementById('srEqArea1').value = matchedEq?.location || log?.facility || '';
-    document.getElementById('srEqArea2').value = matchedEq?.nextDue ? `Next PM Due: ${matchedEq.nextDue}` : '';
+    document.getElementById('srChkWarranty').checked = !!details.chkWarranty;
+    document.getElementById('srChkOutWarranty').checked = !!details.chkOutWarranty;
+    document.getElementById('srChkCheckup').checked = !!details.chkCheckup;
+    document.getElementById('srChkCleaning').checked = !!details.chkCleaning;
+    document.getElementById('srChkContract').checked = !!details.chkContract;
+    document.getElementById('srChkOrientation').checked = !!details.chkOrientation;
+    document.getElementById('srChkDelivery').checked = !!details.chkDelivery;
 
-    // Blank by default as requested
-    document.getElementById('srFindings').value = '';
-    document.getElementById('srActionTaken').value = '';
-    document.getElementById('srServiceAmount').value = '';
-    document.getElementById('srParts').value = '';
-    document.getElementById('srPartsAmount').value = '';
-    document.getElementById('srRemarks').value = '';
+    document.getElementById('srEquipmentName').value = details.equipmentName ?? log?.eqName ?? matchedEq?.name ?? '';
+    document.getElementById('srModel').value = details.model ?? log?.model ?? matchedEq?.model ?? '';
+    document.getElementById('srSerial').value = details.serial ?? log?.serial ?? matchedEq?.serial ?? '';
+    document.getElementById('srEqArea1').value = details.eqArea1 ?? matchedEq?.location ?? log?.facility ?? '';
+    document.getElementById('srEqArea2').value = details.eqArea2 ?? (matchedEq?.nextDue ? `Next PM Due: ${matchedEq.nextDue}` : '');
 
-    document.getElementById('srTechnicianName').value = log?.tech || '';
-    document.getElementById('srTechDate').value = log?.date || todayStr;
-    document.getElementById('srCustomerSign').value = '';
-    document.getElementById('srCustomerDate').value = log?.date || todayStr;
+    document.getElementById('srFindings').value = details.findings ?? '';
+    document.getElementById('srActionTaken').value = details.actionTaken ?? log?.notes ?? '';
+    document.getElementById('srServiceAmount').value = details.serviceAmount ?? '';
+    document.getElementById('srParts').value = details.parts ?? '';
+    document.getElementById('srPartsAmount').value = details.partsAmount ?? '';
+    document.getElementById('srRemarks').value = details.remarks ?? '';
+
+    document.getElementById('srTechnicianName').value = details.technicianName ?? log?.tech ?? '';
+    document.getElementById('srTechDate').value = details.techDate ?? log?.date ?? todayStr;
+    document.getElementById('srCustomerSign').value = details.customerSign ?? '';
+    document.getElementById('srCustomerDate').value = details.customerDate ?? log?.date ?? todayStr;
+}
+
+// MODE 1: Open Blank Form to REGISTER a Brand-New Service Report (Next Sequential Number)
+function openNewServiceReportRegistration() {
+    if (isVisitorMode()) {
+        if (typeof showNotificationToast === 'function') {
+            showNotificationToast('Visitors have view-only access. Please Sign In to register a Service Report.', true);
+        }
+        return;
+    }
+    ensureServiceReportModalExists();
+    ensureSequentialReportNumbers();
+
+    currentServiceReportMode = 'register';
+    currentEditingLogId = null;
+
+    const nextSeriesNo = getNextAvailableServiceReportNo();
+    populateServiceReportFields(null, nextSeriesNo);
+    setServiceReportReadOnlyState(false);
+
+    document.getElementById('srModeBadge').className = 'px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40';
+    document.getElementById('srModeBadge').innerText = `New Series #${nextSeriesNo}`;
+    document.getElementById('srModalSubtitleText').innerText = 'Fill in the service details below and click "Register Service Report" to permanently log this number.';
+
+    document.getElementById('srBtnSaveReport')?.classList.remove('hidden');
+    document.getElementById('srBtnSaveLabel').innerText = 'Register Service Report';
+    document.getElementById('srBtnUnlockEdit')?.classList.add('hidden');
 
     document.getElementById('seiralabServiceReportModal')?.classList.remove('hidden');
     if (window.lucide) lucide.createIcons();
 }
 
+// MODE 2: Open Existing Registered Service Report for VIEWING (Read-Only + Print)
+function openServiceReportForViewing(logId) {
+    ensureServiceReportModalExists();
+    ensureSequentialReportNumbers();
+
+    const logs = window.historyLogs || [];
+    const log = logs.find(l => String(l.id) === String(logId));
+    if (!log) {
+        openNewServiceReportRegistration();
+        return;
+    }
+
+    currentServiceReportMode = 'view';
+    currentEditingLogId = log.id;
+
+    populateServiceReportFields(log, log.reportNo || '05535');
+    setServiceReportReadOnlyState(true);
+
+    document.getElementById('srModeBadge').className = 'px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/40';
+    document.getElementById('srModeBadge').innerText = `Viewing #${log.reportNo}`;
+    document.getElementById('srModalSubtitleText').innerText = 'Read-Only Viewing Mode — Head Technical or MasterAdmin permission is required to edit.';
+
+    document.getElementById('srBtnSaveReport')?.classList.add('hidden');
+    document.getElementById('srBtnUnlockEdit')?.classList.remove('hidden');
+
+    document.getElementById('seiralabServiceReportModal')?.classList.remove('hidden');
+    if (window.lucide) lucide.createIcons();
+}
+
+// MODE 3: Request to EDIT an Existing Registered Service Report (Requires Head Technical or MasterAdmin)
+function requestEditServiceReport(logId) {
+    ensureServiceReportModalExists();
+    ensureSequentialReportNumbers();
+
+    const logs = window.historyLogs || [];
+    const log = logs.find(l => String(l.id) === String(logId));
+    if (!log) return;
+
+    currentEditingLogId = log.id;
+
+    // If current logged-in user is ALREADY Head Technical or MasterAdmin (or just authorized), unlock immediately
+    if (isHeadOrAdminRole() || tempSupervisorAuthorized) {
+        unlockServiceReportEditMode(log);
+    } else {
+        // Prompt for Head Technical or MasterAdmin password first
+        const errEl = document.getElementById('srAuthErrorMsg');
+        if (errEl) errEl.classList.add('hidden');
+        const passInput = document.getElementById('srAuthPasswordInput');
+        if (passInput) passInput.value = '';
+        document.getElementById('srSupervisorAuthModal')?.classList.remove('hidden');
+        setTimeout(() => passInput?.focus(), 60);
+    }
+}
+
+function unlockServiceReportEditMode(log) {
+    currentServiceReportMode = 'edit';
+    currentEditingLogId = log.id;
+
+    populateServiceReportFields(log, log.reportNo || '05535');
+    setServiceReportReadOnlyState(false);
+
+    document.getElementById('srModeBadge').className = 'px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40';
+    document.getElementById('srModeBadge').innerText = `Editing #${log.reportNo} (Authorized)`;
+    document.getElementById('srModalSubtitleText').innerText = 'Authorized Edit Mode — Modify any field below and click "Save Edited Report".';
+
+    document.getElementById('srBtnSaveReport')?.classList.remove('hidden');
+    document.getElementById('srBtnSaveLabel').innerText = 'Save Edited Report';
+    document.getElementById('srBtnUnlockEdit')?.classList.add('hidden');
+
+    document.getElementById('seiralabServiceReportModal')?.classList.remove('hidden');
+    if (window.lucide) lucide.createIcons();
+}
+
+function closeSupervisorAuthModal() {
+    document.getElementById('srSupervisorAuthModal')?.classList.add('hidden');
+}
+
+async function submitSupervisorEditApproval(event) {
+    event.preventDefault();
+    const selectedRole = document.getElementById('srAuthRoleSelect')?.value || 'Head Technical';
+    const typedPass = (document.getElementById('srAuthPasswordInput')?.value || '').trim();
+    const errEl = document.getElementById('srAuthErrorMsg');
+
+    let isValid = false;
+
+    // Verify using the same SHA-256 verification from login-portal.js
+    if (typeof verifyClientHash === 'function') {
+        isValid = await verifyClientHash(selectedRole, typedPass);
+    } else {
+        const expected = selectedRole === 'MasterAdmin' ? atob('c2VpcmFsYWJhZG1pbg==') : atob('c2VpcmFsYWJoZWFk');
+        isValid = (typedPass === expected);
+    }
+
+    if (!isValid) {
+        if (errEl) {
+            errEl.innerText = `Invalid ${selectedRole} password. Edit permission denied.`;
+            errEl.classList.remove('hidden');
+        }
+        return;
+    }
+
+    tempSupervisorAuthorized = true;
+    closeSupervisorAuthModal();
+
+    const log = (window.historyLogs || []).find(l => String(l.id) === String(currentEditingLogId));
+    if (log) {
+        unlockServiceReportEditMode(log);
+        if (typeof showNotificationToast === 'function') {
+            showNotificationToast(`Authorized by ${selectedRole}. Report #${log.reportNo} unlocked for editing.`);
+        }
+    }
+}
+
+// Save either a newly registered Service Report OR an authorized edit
+async function saveRegisteredServiceReport() {
+    if (currentServiceReportMode === 'view') return;
+    if (currentServiceReportMode === 'edit' && !isHeadOrAdminRole() && !tempSupervisorAuthorized) {
+        requestEditServiceReport(currentEditingLogId);
+        return;
+    }
+
+    ensureSequentialReportNumbers();
+
+    const reportNoInput = document.getElementById('srReportNo')?.value.trim() || getNextAvailableServiceReportNo();
+    const srDetails = {
+        date: document.getElementById('srDate')?.value.trim() || new Date().toISOString().split('T')[0],
+        company: document.getElementById('srCompany')?.value.trim() || '',
+        tel: document.getElementById('srTel')?.value.trim() || '',
+        contact: document.getElementById('srContact')?.value.trim() || '',
+        department: document.getElementById('srDepartment')?.value.trim() || '',
+        address: document.getElementById('srAddress')?.value.trim() || '',
+        complaints: document.getElementById('srComplaints')?.value.trim() || '',
+        chkWarranty: !!document.getElementById('srChkWarranty')?.checked,
+        chkOutWarranty: !!document.getElementById('srChkOutWarranty')?.checked,
+        chkCheckup: !!document.getElementById('srChkCheckup')?.checked,
+        chkCleaning: !!document.getElementById('srChkCleaning')?.checked,
+        chkContract: !!document.getElementById('srChkContract')?.checked,
+        chkOrientation: !!document.getElementById('srChkOrientation')?.checked,
+        chkDelivery: !!document.getElementById('srChkDelivery')?.checked,
+        equipmentName: document.getElementById('srEquipmentName')?.value.trim() || '',
+        model: document.getElementById('srModel')?.value.trim() || '',
+        serial: document.getElementById('srSerial')?.value.trim() || '',
+        eqArea1: document.getElementById('srEqArea1')?.value.trim() || '',
+        eqArea2: document.getElementById('srEqArea2')?.value.trim() || '',
+        findings: document.getElementById('srFindings')?.value.trim() || '',
+        actionTaken: document.getElementById('srActionTaken')?.value.trim() || '',
+        serviceAmount: document.getElementById('srServiceAmount')?.value.trim() || '',
+        parts: document.getElementById('srParts')?.value.trim() || '',
+        partsAmount: document.getElementById('srPartsAmount')?.value.trim() || '',
+        remarks: document.getElementById('srRemarks')?.value.trim() || '',
+        technicianName: document.getElementById('srTechnicianName')?.value.trim() || '',
+        techDate: document.getElementById('srTechDate')?.value.trim() || '',
+        customerSign: document.getElementById('srCustomerSign')?.value.trim() || '',
+        customerDate: document.getElementById('srCustomerDate')?.value.trim() || ''
+    };
+
+    if (!srDetails.equipmentName && !srDetails.company) {
+        if (typeof showNotificationToast === 'function') {
+            showNotificationToast('Please enter at least the Company/Hospital Name or Equipment Name.', true);
+        }
+        return;
+    }
+
+    // Build Activity Type label from checked boxes or complaints
+    const checkedLabels = [];
+    if (srDetails.chkWarranty) checkedLabels.push('Warranty');
+    if (srDetails.chkOutWarranty) checkedLabels.push('Out of Warranty');
+    if (srDetails.chkCheckup) checkedLabels.push('Check-up');
+    if (srDetails.chkCleaning) checkedLabels.push('Cleaning/Repair');
+    if (srDetails.chkContract) checkedLabels.push('Under Contract');
+    if (srDetails.chkOrientation) checkedLabels.push('Orientation');
+    if (srDetails.chkDelivery) checkedLabels.push('Delivery');
+
+    const activityType = srDetails.complaints || (checkedLabels.length > 0 ? checkedLabels.join(', ') : 'Service & Maintenance Report');
+    const combinedNotes = [srDetails.findings, srDetails.actionTaken, srDetails.remarks].filter(Boolean).join(' — ') || 'Service report registered.';
+    const displayEqName = srDetails.model && !srDetails.equipmentName.includes(srDetails.model)
+        ? `${srDetails.equipmentName} (${srDetails.model})`
+        : (srDetails.equipmentName || 'Medical Equipment');
+
+    let commitMessage = '';
+
+    if (currentServiceReportMode === 'register') {
+        // Strictly guarantee no duplicate report number on registration
+        const finalReportNo = (window.historyLogs || []).some(l => String(l.reportNo) === String(reportNoInput))
+            ? getNextAvailableServiceReportNo()
+            : reportNoInput;
+
+        const newLog = {
+            id: Date.now(),
+            reportNo: finalReportNo,
+            date: srDetails.date,
+            eqName: displayEqName,
+            model: srDetails.model,
+            serial: srDetails.serial,
+            facility: srDetails.company || 'Client Facility',
+            type: activityType,
+            tech: srDetails.technicianName || (window.currentAccessRole || 'Biomedical Engineer'),
+            notes: combinedNotes,
+            srDetails: srDetails
+        };
+
+        window.historyLogs.unshift(newLog);
+        commitMessage = `Register Service Report #${finalReportNo} (${displayEqName})`;
+        if (typeof showNotificationToast === 'function') {
+            showNotificationToast(`Registered Service Report #${finalReportNo}!`);
+        }
+    } else if (currentServiceReportMode === 'edit') {
+        const idx = (window.historyLogs || []).findIndex(l => String(l.id) === String(currentEditingLogId));
+        if (idx !== -1) {
+            const preservedReportNo = window.historyLogs[idx].reportNo || reportNoInput;
+            window.historyLogs[idx] = {
+                ...window.historyLogs[idx],
+                reportNo: preservedReportNo,
+                date: srDetails.date,
+                eqName: displayEqName,
+                model: srDetails.model,
+                serial: srDetails.serial,
+                facility: srDetails.company || window.historyLogs[idx].facility,
+                type: activityType,
+                tech: srDetails.technicianName || window.historyLogs[idx].tech,
+                notes: combinedNotes,
+                srDetails: srDetails
+            };
+            commitMessage = `Edit Service Report #${preservedReportNo} (${displayEqName})`;
+            if (typeof showNotificationToast === 'function') {
+                showNotificationToast(`Saved changes to Service Report #${preservedReportNo}!`);
+            }
+        }
+    }
+
+    tempSupervisorAuthorized = false;
+
+    // Sync to localStorage & app.js variable
+    localStorage.setItem('seiralab_history', JSON.stringify(window.historyLogs));
+    try {
+        if (typeof historyLogs !== 'undefined') historyLogs = window.historyLogs;
+    } catch (_) {}
+
+    closeServiceReportModal();
+    if (typeof renderHistoryTable === 'function') renderHistoryTable();
+    upgradeMaintenanceHistoryCertificateButtons();
+
+    if (typeof pushToGitHub === 'function' && commitMessage) {
+        await pushToGitHub(commitMessage);
+    }
+}
+
 function closeServiceReportModal() {
+    tempSupervisorAuthorized = false;
     document.getElementById('seiralabServiceReportModal')?.classList.add('hidden');
 }
 
+// Upgrade the Maintenance History & Audit Logs table with Series Badge + [Edit] and [Viewing] buttons
 function upgradeMaintenanceHistoryCertificateButtons() {
     ensureServiceReportModalExists();
+    ensureSequentialReportNumbers();
 
+    // 1. Ensure top "Service Report Form" button opens New Registration with next sequential number
     const historySection = document.getElementById('history');
     if (historySection) {
         const headerContainer = historySection.querySelector('div:first-child');
-        if (headerContainer && !document.getElementById('btnOpenBlankServiceReport')) {
-            let btnGroup = headerContainer.querySelector('div:nth-child(2)') || headerContainer;
-            const blankBtn = document.createElement('button');
-            blankBtn.type = 'button';
-            blankBtn.id = 'btnOpenBlankServiceReport';
-            blankBtn.onclick = () => openServiceReportTemplate(null);
-            blankBtn.className = 'inline-flex items-center justify-center px-3.5 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg font-medium text-xs sm:text-sm shadow-xs transition-all space-x-1.5 whitespace-nowrap cursor-pointer mr-2';
+        if (headerContainer) {
+            let blankBtn = document.getElementById('btnOpenBlankServiceReport');
+            if (!blankBtn) {
+                let btnGroup = headerContainer.querySelector('div:nth-child(2)') || headerContainer;
+                blankBtn = document.createElement('button');
+                blankBtn.type = 'button';
+                blankBtn.id = 'btnOpenBlankServiceReport';
+                blankBtn.className = 'inline-flex items-center justify-center px-3.5 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg font-medium text-xs sm:text-sm shadow-xs transition-all space-x-1.5 whitespace-nowrap cursor-pointer mr-2';
+                btnGroup.insertBefore(blankBtn, btnGroup.firstChild);
+            }
+            blankBtn.onclick = () => openNewServiceReportRegistration();
             blankBtn.innerHTML = `
-                <i data-lucide="file-spreadsheet" class="w-4 h-4"></i>
+                <i data-lucide="file-plus-2" class="w-4 h-4"></i>
                 <span>Service Report Form</span>
             `;
-            btnGroup.insertBefore(blankBtn, btnGroup.firstChild);
         }
     }
 
     window.downloadCertificate = function (logId) {
-        openServiceReportTemplate(logId);
+        openServiceReportForViewing(logId);
     };
 
+    // 2. Upgrade every row in #historyTableBody to show Report Series # + [Edit] + [Service Report (View)]
     const historyTbody = document.getElementById('historyTableBody');
     if (historyTbody) {
-        historyTbody.querySelectorAll('button').forEach(btn => {
-            const txt = btn.innerText.trim();
-            if (txt.includes('Certificate') || txt.includes('Download') || txt.includes('Report')) {
-                btn.className = 'px-3 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-700 border border-teal-200 rounded-lg font-semibold text-xs inline-flex items-center space-x-1.5 transition-colors cursor-pointer';
-                btn.innerHTML = `<i data-lucide="printer" class="w-3.5 h-3.5"></i><span>Service Report</span>`;
+        const rows = historyTbody.querySelectorAll('tr');
+        rows.forEach((tr, idx) => {
+            const actionCell = tr.querySelector('td:last-child');
+            const origBtn = actionCell?.querySelector('button');
+            if (!actionCell || !origBtn) return;
+
+            // Extract logId from original onclick="downloadCertificate(123)" or match by index
+            const onclickAttr = origBtn.getAttribute('onclick') || '';
+            const idMatch = onclickAttr.match(/\(([^)]+)\)/);
+            const rawLogId = idMatch ? idMatch[1].replace(/['"]/g, '') : (window.historyLogs?.[idx]?.id || '');
+            const matchedLog = (window.historyLogs || []).find(l => String(l.id) === String(rawLogId)) || window.historyLogs?.[idx];
+            if (!matchedLog) return;
+
+            const safeId = String(matchedLog.id).replace(/'/g, "\\'");
+            const seriesNo = matchedLog.reportNo || '05535';
+
+            // Display Series Badge under Service Date in Column 1 if not already added
+            const dateCell = tr.querySelector('td:first-child');
+            if (dateCell && !dateCell.querySelector('.sr-series-pill')) {
+                dateCell.insertAdjacentHTML(
+                    'beforeend',
+                    `<div class="sr-series-pill mt-1 inline-block px-2 py-0.5 bg-slate-100 border border-slate-300 text-slate-800 font-mono text-[11px] font-bold rounded">SR #${seriesNo}</div>`
+                );
             }
+
+            // Replace single button with [Edit] (Protected) + [Service Report] (Viewing)
+            actionCell.innerHTML = `
+                <div class="inline-flex items-center justify-end space-x-1.5">
+                    <button type="button" onclick="requestEditServiceReport('${safeId}')" class="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg font-semibold text-xs inline-flex items-center space-x-1 transition-colors cursor-pointer" title="Edit Service Report (Requires Head Technical or MasterAdmin)">
+                        <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
+                        <span>Edit</span>
+                    </button>
+                    <button type="button" onclick="openServiceReportForViewing('${safeId}')" class="px-3 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-700 border border-teal-200 rounded-lg font-semibold text-xs inline-flex items-center space-x-1.5 transition-colors cursor-pointer" title="View & Print Service Report #${seriesNo}">
+                        <i data-lucide="eye" class="w-3.5 h-3.5"></i>
+                        <span>Service Report</span>
+                    </button>
+                </div>
+            `;
         });
     }
     if (window.lucide) lucide.createIcons();
@@ -1633,7 +2097,13 @@ if (typeof origRenderHistoryTable === 'function') {
     };
 }
 
-window.openServiceReportTemplate = openServiceReportTemplate;
+window.openServiceReportTemplate = openServiceReportForViewing;
+window.openNewServiceReportRegistration = openNewServiceReportRegistration;
+window.openServiceReportForViewing = openServiceReportForViewing;
+window.requestEditServiceReport = requestEditServiceReport;
+window.saveRegisteredServiceReport = saveRegisteredServiceReport;
+window.submitSupervisorEditApproval = submitSupervisorEditApproval;
+window.closeSupervisorAuthModal = closeSupervisorAuthModal;
 window.closeServiceReportModal = closeServiceReportModal;
 
 window.addEventListener('DOMContentLoaded', function () {
