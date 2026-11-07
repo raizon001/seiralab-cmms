@@ -1106,3 +1106,76 @@ window.closeServiceReportModal = closeServiceReportModal;
 window.upgradeMaintenanceHistoryCertificateButtons = upgradeMaintenanceHistoryCertificateButtons;
 
 setTimeout(upgradeMaintenanceHistoryCertificateButtons, 250);
+
+
+
+// ============================================================================
+// PERMANENT DOM OBSERVER (Prevents app.js from reverting buttons to "Certificate")
+// ============================================================================
+let isUpgradingHistoryDOM = false;
+
+const rawUpgradeHistoryButtons = upgradeMaintenanceHistoryCertificateButtons;
+upgradeMaintenanceHistoryCertificateButtons = function () {
+    if (isUpgradingHistoryDOM) return;
+    isUpgradingHistoryDOM = true;
+    try {
+        rawUpgradeHistoryButtons();
+    } finally {
+        setTimeout(() => { isUpgradingHistoryDOM = false; }, 30);
+    }
+};
+
+function attachHistoryTableObserver() {
+    const historyTbody = document.getElementById('historyTableBody');
+    if (!historyTbody || historyTbody.dataset.srObserved === 'true') return;
+
+    historyTbody.dataset.srObserved = 'true';
+    const observer = new MutationObserver(() => {
+        if (isUpgradingHistoryDOM) return;
+        // If app.js re-rendered the table with old "Certificate" buttons, upgrade immediately!
+        const hasOldCertBtn = Array.from(historyTbody.querySelectorAll('button')).some(
+            b => b.innerText.trim() === 'Certificate'
+        );
+        if (hasOldCertBtn) {
+            upgradeMaintenanceHistoryCertificateButtons();
+        }
+    });
+    observer.observe(historyTbody, { childList: true, subtree: true });
+}
+
+const origRenderHistoryTable = window.renderHistoryTable;
+if (typeof origRenderHistoryTable === 'function') {
+    window.renderHistoryTable = function () {
+        origRenderHistoryTable.apply(this, arguments);
+        upgradeMaintenanceHistoryCertificateButtons();
+    };
+}
+
+const origSwitchAccessRole = window.switchAccessRole;
+if (typeof origSwitchAccessRole === 'function') {
+    window.switchAccessRole = function () {
+        origSwitchAccessRole.apply(this, arguments);
+        upgradeMaintenanceHistoryCertificateButtons();
+        if (typeof renderCalibrationTable === 'function') renderCalibrationTable();
+    };
+}
+
+window.openServiceReportTemplate = openServiceReportForViewing;
+window.openNewServiceReportRegistration = openNewServiceReportRegistration;
+window.openServiceReportForViewing = openServiceReportForViewing;
+window.requestEditServiceReport = requestEditServiceReport;
+window.closeEditRequestModal = closeEditRequestModal;
+window.submitTechnicalEditRequest = submitTechnicalEditRequest;
+window.resolveServiceReportEditRequest = resolveServiceReportEditRequest;
+window.deleteServiceReportLog = deleteServiceReportLog;
+window.saveRegisteredServiceReport = saveRegisteredServiceReport;
+window.closeServiceReportModal = closeServiceReportModal;
+window.upgradeMaintenanceHistoryCertificateButtons = upgradeMaintenanceHistoryCertificateButtons;
+
+// Run immediately and attach permanent observer
+upgradeMaintenanceHistoryCertificateButtons();
+attachHistoryTableObserver();
+setTimeout(() => {
+    upgradeMaintenanceHistoryCertificateButtons();
+    attachHistoryTableObserver();
+}, 300);
