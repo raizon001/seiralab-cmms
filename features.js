@@ -1256,13 +1256,13 @@ window.addEventListener('DOMContentLoaded', removeRiskFromAllUI);
 setTimeout(removeRiskFromAllUI, 200);
 
 // ============================================================================
-// 6. SEIRALAB SERVICE REPORT SERIES ENGINE (REGISTER + VIEW + HEAD/ADMIN EDIT)
-// Sequential non-duplicating series (05535+) & Head/Admin authorization lock
+// 6. SEIRALAB SERVICE REPORT SERIES ENGINE
+// - Technical: Send Edit Request -> Head/Admin Accept or Decline
+// - Head Technical & MasterAdmin: Direct Edit + Accept/Decline + Delete Button
 // ============================================================================
 
 let currentServiceReportMode = 'register'; // 'register' | 'view' | 'edit'
 let currentEditingLogId = null;
-let tempSupervisorAuthorized = false;
 
 function isHeadOrAdminRole() {
     const role = window.currentAccessRole || sessionStorage.getItem('seiralab_active_session_role') || 'Visitor';
@@ -1278,7 +1278,6 @@ function ensureSequentialReportNumbers() {
     const usedNumbers = new Set();
     let maxNum = 5534;
 
-    // First pass: collect existing valid report numbers
     window.historyLogs.forEach(log => {
         if (log.reportNo && /^\d+$/.test(String(log.reportNo).trim())) {
             const num = parseInt(String(log.reportNo).trim(), 10);
@@ -1286,13 +1285,11 @@ function ensureSequentialReportNumbers() {
                 usedNumbers.add(num);
                 if (num > maxNum) maxNum = num;
             } else {
-                // Duplicate found -> clear so second pass assigns a unique one
                 log.reportNo = '';
             }
         }
     });
 
-    // Second pass (oldest to newest): assign sequential numbers to any log missing one
     let changed = false;
     for (let i = window.historyLogs.length - 1; i >= 0; i--) {
         const log = window.historyLogs[i];
@@ -1312,7 +1309,6 @@ function ensureSequentialReportNumbers() {
     }
 }
 
-// Get the next available non-duplicate 5-digit series number (e.g., "05535", "05536")
 function getNextAvailableServiceReportNo() {
     ensureSequentialReportNumbers();
     let maxNum = 5534;
@@ -1404,8 +1400,8 @@ function ensureServiceReportModalExists() {
             </div>
             <div class="flex items-center space-x-2">
                 <button type="button" id="srBtnUnlockEdit" onclick="requestEditServiceReport(currentEditingLogId)" class="hidden px-3.5 py-2 bg-amber-600 hover:bg-amber-500 text-white font-semibold text-xs rounded-lg shadow-sm inline-flex items-center space-x-1.5 cursor-pointer transition-colors">
-                    <i data-lucide="lock" class="w-3.5 h-3.5"></i>
-                    <span>Edit (Head / Admin)</span>
+                    <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
+                    <span id="srBtnUnlockEditLabel">Request Edit</span>
                 </button>
                 <button type="button" id="srBtnSaveReport" onclick="saveRegisteredServiceReport()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded-lg shadow-sm inline-flex items-center space-x-1.5 cursor-pointer transition-colors">
                     <i data-lucide="check-circle-2" class="w-4 h-4"></i>
@@ -1611,39 +1607,46 @@ function ensureServiceReportModalExists() {
         </div>
     </div>
 
-    <!-- Head Technical / MasterAdmin Permission Modal for Editing Registered Service Reports -->
-    <div id="srSupervisorAuthModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-xs z-[130] hidden flex items-center justify-center p-4">
+    <!-- Technical Edit Request Modal (Sends Request to Head Technical / MasterAdmin) -->
+    <div id="srEditRequestModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-xs z-[130] hidden flex items-center justify-center p-4">
         <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
             <div class="flex items-center justify-between pb-3 border-b border-slate-100">
                 <div class="flex items-center space-x-2.5">
                     <div class="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center">
-                        <i data-lucide="shield-alert" class="w-5 h-5"></i>
+                        <i data-lucide="send" class="w-5 h-5"></i>
                     </div>
                     <div>
-                        <h4 class="text-sm font-bold text-slate-900">Head / Admin Permission Required</h4>
-                        <p class="text-[11px] text-slate-500">Editing a registered Service Report requires authorization</p>
+                        <h4 class="text-sm font-bold text-slate-900">Request Permission to Edit</h4>
+                        <p id="srEditRequestTargetLabel" class="text-[11px] text-slate-500">Send an edit request to Head Technical or MasterAdmin</p>
                     </div>
                 </div>
-                <button type="button" onclick="closeSupervisorAuthModal()" class="text-slate-400 hover:text-slate-600 p-1">
+                <button type="button" onclick="closeEditRequestModal()" class="text-slate-400 hover:text-slate-600 p-1">
                     <i data-lucide="x" class="w-4 h-4"></i>
                 </button>
             </div>
-            <form onsubmit="submitSupervisorEditApproval(event)" class="space-y-4 pt-4">
+            <form onsubmit="submitTechnicalEditRequest(event)" class="space-y-4 pt-4">
                 <div>
-                    <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Approving Role</label>
-                    <select id="srAuthRoleSelect" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500">
+                    <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Request To Approving Role</label>
+                    <select id="srReqTargetRole" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500">
+                        <option value="Head Technical & MasterAdmin">Head Technical / MasterAdmin</option>
                         <option value="Head Technical">Head Technical</option>
                         <option value="MasterAdmin">MasterAdmin</option>
                     </select>
                 </div>
                 <div>
-                    <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Authorization Password *</label>
-                    <input type="password" id="srAuthPasswordInput" required placeholder="Enter Head or Admin password" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-teal-500">
+                    <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Requested By (Engineer Name) *</label>
+                    <input type="text" id="srReqEngineerName" required placeholder="e.g., Eng. Barzce Barcelona" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
                 </div>
-                <p id="srAuthErrorMsg" class="hidden text-xs font-semibold text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2"></p>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Reason for Editing Service Report *</label>
+                    <textarea id="srReqReasonInput" rows="3" required placeholder="State what needs to be updated (e.g., update replaced part serial number or findings)..." class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"></textarea>
+                </div>
                 <div class="pt-2 flex items-center justify-end space-x-2.5">
-                    <button type="button" onclick="closeSupervisorAuthModal()" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold cursor-pointer">Cancel</button>
-                    <button type="submit" class="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-semibold shadow-sm cursor-pointer">Authorize &amp; Unlock Edit</button>
+                    <button type="button" onclick="closeEditRequestModal()" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold cursor-pointer">Cancel</button>
+                    <button type="submit" class="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-semibold shadow-sm inline-flex items-center space-x-1.5 cursor-pointer">
+                        <i data-lucide="send" class="w-3.5 h-3.5"></i>
+                        <span>Send Edit Request</span>
+                    </button>
                 </div>
             </form>
         </div>
@@ -1680,7 +1683,6 @@ function setServiceReportReadOnlyState(isReadOnly) {
     });
 }
 
-// Populate or clear form fields from a Maintenance History log object
 function populateServiceReportFields(log, reportNumber) {
     const eqList = window.equipmentList || JSON.parse(localStorage.getItem('seiralab_equipment') || '[]');
     let matchedEq = null;
@@ -1730,7 +1732,7 @@ function populateServiceReportFields(log, reportNumber) {
     document.getElementById('srCustomerDate').value = details.customerDate ?? log?.date ?? todayStr;
 }
 
-// MODE 1: Open Blank Form to REGISTER a Brand-New Service Report (Next Sequential Number)
+// MODE 1: Open Blank Form to REGISTER a Brand-New Service Report
 function openNewServiceReportRegistration() {
     if (isVisitorMode()) {
         if (typeof showNotificationToast === 'function') {
@@ -1780,17 +1782,40 @@ function openServiceReportForViewing(logId) {
 
     document.getElementById('srModeBadge').className = 'px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/40';
     document.getElementById('srModeBadge').innerText = `Viewing #${log.reportNo}`;
-    document.getElementById('srModalSubtitleText').innerText = 'Read-Only Viewing Mode — Head Technical or MasterAdmin permission is required to edit.';
+    document.getElementById('srModalSubtitleText').innerText = 'Read-Only Viewing Mode — Click Edit if changes are needed.';
 
     document.getElementById('srBtnSaveReport')?.classList.add('hidden');
-    document.getElementById('srBtnUnlockEdit')?.classList.remove('hidden');
+
+    const unlockBtn = document.getElementById('srBtnUnlockEdit');
+    const unlockLabel = document.getElementById('srBtnUnlockEditLabel');
+    if (unlockBtn && !isVisitorMode()) {
+        unlockBtn.classList.remove('hidden');
+        if (unlockLabel) {
+            if (isHeadOrAdminRole() || log.editRequestStatus === 'approved') {
+                unlockLabel.innerText = 'Edit Report';
+            } else if (log.editRequestStatus === 'pending') {
+                unlockLabel.innerText = 'Edit Request Pending';
+            } else {
+                unlockLabel.innerText = 'Request Edit';
+            }
+        }
+    } else if (unlockBtn) {
+        unlockBtn.classList.add('hidden');
+    }
 
     document.getElementById('seiralabServiceReportModal')?.classList.remove('hidden');
     if (window.lucide) lucide.createIcons();
 }
 
-// MODE 3: Request to EDIT an Existing Registered Service Report (Requires Head Technical or MasterAdmin)
+// MODE 3: Handle Edit Click (Direct unlock for Head/Admin or Approved Request; Send Request for Technical)
 function requestEditServiceReport(logId) {
+    if (isVisitorMode()) {
+        if (typeof showNotificationToast === 'function') {
+            showNotificationToast('Visitors have view-only access.', true);
+        }
+        return;
+    }
+
     ensureServiceReportModalExists();
     ensureSequentialReportNumbers();
 
@@ -1800,17 +1825,158 @@ function requestEditServiceReport(logId) {
 
     currentEditingLogId = log.id;
 
-    // If current logged-in user is ALREADY Head Technical or MasterAdmin (or just authorized), unlock immediately
-    if (isHeadOrAdminRole() || tempSupervisorAuthorized) {
+    // 1. Head Technical or MasterAdmin can always edit directly
+    if (isHeadOrAdminRole()) {
         unlockServiceReportEditMode(log);
+        return;
+    }
+
+    // 2. Technical user whose request was ACCEPTED by Head/Admin can edit now
+    if (log.editRequestStatus === 'approved') {
+        unlockServiceReportEditMode(log);
+        return;
+    }
+
+    // 3. Technical user whose request is already pending
+    if (log.editRequestStatus === 'pending') {
+        if (typeof showNotificationToast === 'function') {
+            showNotificationToast(`Edit request for SR #${log.reportNo} is already pending approval from Head Technical / MasterAdmin.`);
+        }
+        return;
+    }
+
+    // 4. Technical user: Open "Request Permission to Edit" Modal
+    const targetLabel = document.getElementById('srEditRequestTargetLabel');
+    if (targetLabel) {
+        targetLabel.innerText = `Service Report #${log.reportNo} — ${log.eqName} (${log.facility})`;
+    }
+    const engInput = document.getElementById('srReqEngineerName');
+    if (engInput && !engInput.value) {
+        engInput.value = log.tech || '';
+    }
+    const reasonInput = document.getElementById('srReqReasonInput');
+    if (reasonInput) reasonInput.value = '';
+
+    document.getElementById('srEditRequestModal')?.classList.remove('hidden');
+    if (window.lucide) lucide.createIcons();
+    setTimeout(() => reasonInput?.focus(), 60);
+}
+
+function closeEditRequestModal() {
+    document.getElementById('srEditRequestModal')?.classList.add('hidden');
+}
+
+async function submitTechnicalEditRequest(event) {
+    event.preventDefault();
+    const log = (window.historyLogs || []).find(l => String(l.id) === String(currentEditingLogId));
+    if (!log) return;
+
+    const targetRole = document.getElementById('srReqTargetRole')?.value || 'Head Technical / MasterAdmin';
+    const requester = (document.getElementById('srReqEngineerName')?.value || 'Technical Engineer').trim();
+    const reason = (document.getElementById('srReqReasonInput')?.value || '').trim();
+
+    log.editRequestStatus = 'pending';
+    log.editRequestedBy = requester;
+    log.editRequestTarget = targetRole;
+    log.editRequestReason = reason;
+    log.editRequestedAt = new Date().toISOString().split('T')[0];
+
+    localStorage.setItem('seiralab_history', JSON.stringify(window.historyLogs));
+    try {
+        if (typeof historyLogs !== 'undefined') historyLogs = window.historyLogs;
+    } catch (_) {}
+
+    closeEditRequestModal();
+    closeServiceReportModal();
+
+    if (typeof renderHistoryTable === 'function') renderHistoryTable();
+    upgradeMaintenanceHistoryCertificateButtons();
+    if (typeof buildSystemNotifications === 'function') buildSystemNotifications();
+
+    if (typeof showNotificationToast === 'function') {
+        showNotificationToast(`Edit request for SR #${log.reportNo} sent to ${targetRole}!`);
+    }
+
+    if (typeof pushToGitHub === 'function') {
+        await pushToGitHub(`Edit Request for SR #${log.reportNo} by ${requester}`);
+    }
+}
+
+// Head Technical / MasterAdmin: ACCEPT or DECLINE a Technical Edit Request
+async function resolveServiceReportEditRequest(logId, decision) {
+    if (!isHeadOrAdminRole()) {
+        if (typeof showNotificationToast === 'function') {
+            showNotificationToast('Only Head Technical or MasterAdmin can approve or decline edit requests.', true);
+        }
+        return;
+    }
+
+    const log = (window.historyLogs || []).find(l => String(l.id) === String(logId));
+    if (!log) return;
+
+    const approverRole = window.currentAccessRole || 'Supervisor';
+
+    if (decision === 'accept') {
+        log.editRequestStatus = 'approved';
+        log.editApprovedBy = approverRole;
+        if (typeof showNotificationToast === 'function') {
+            showNotificationToast(`Accepted edit request for SR #${log.reportNo}! Technical can now edit this report.`);
+        }
     } else {
-        // Prompt for Head Technical or MasterAdmin password first
-        const errEl = document.getElementById('srAuthErrorMsg');
-        if (errEl) errEl.classList.add('hidden');
-        const passInput = document.getElementById('srAuthPasswordInput');
-        if (passInput) passInput.value = '';
-        document.getElementById('srSupervisorAuthModal')?.classList.remove('hidden');
-        setTimeout(() => passInput?.focus(), 60);
+        log.editRequestStatus = 'declined';
+        log.editApprovedBy = approverRole;
+        if (typeof showNotificationToast === 'function') {
+            showNotificationToast(`Declined edit request for SR #${log.reportNo}.`);
+        }
+    }
+
+    localStorage.setItem('seiralab_history', JSON.stringify(window.historyLogs));
+    try {
+        if (typeof historyLogs !== 'undefined') historyLogs = window.historyLogs;
+    } catch (_) {}
+
+    if (typeof renderHistoryTable === 'function') renderHistoryTable();
+    upgradeMaintenanceHistoryCertificateButtons();
+    if (typeof buildSystemNotifications === 'function') buildSystemNotifications();
+
+    if (typeof pushToGitHub === 'function') {
+        await pushToGitHub(`${decision === 'accept' ? 'Approved' : 'Declined'} Edit Request for SR #${log.reportNo} by ${approverRole}`);
+    }
+}
+
+// Head Technical / MasterAdmin ONLY: DELETE a Service Report Row
+async function deleteServiceReportLog(logId) {
+    if (!isHeadOrAdminRole()) {
+        if (typeof showNotificationToast === 'function') {
+            showNotificationToast('Only Head Technical and MasterAdmin can delete Service Reports.', true);
+        }
+        return;
+    }
+
+    const logs = window.historyLogs || [];
+    const target = logs.find(l => String(l.id) === String(logId));
+    if (!target) return;
+
+    if (!confirm(`Delete Service Report #${target.reportNo || ''} for "${target.eqName}" (${target.facility})? This cannot be undone.`)) {
+        return;
+    }
+
+    window.historyLogs = logs.filter(l => String(l.id) !== String(logId));
+    localStorage.setItem('seiralab_history', JSON.stringify(window.historyLogs));
+    try {
+        if (typeof historyLogs !== 'undefined') historyLogs = window.historyLogs;
+    } catch (_) {}
+
+    if (typeof renderHistoryTable === 'function') renderHistoryTable();
+    upgradeMaintenanceHistoryCertificateButtons();
+    if (typeof buildSystemNotifications === 'function') buildSystemNotifications();
+
+    if (typeof showNotificationToast === 'function') {
+        showNotificationToast(`Deleted Service Report #${target.reportNo || target.id}.`);
+    }
+
+    if (typeof pushToGitHub === 'function') {
+        await pushToGitHub(`Delete Service Report #${target.reportNo || target.id} (${target.eqName})`);
     }
 }
 
@@ -1833,50 +1999,11 @@ function unlockServiceReportEditMode(log) {
     if (window.lucide) lucide.createIcons();
 }
 
-function closeSupervisorAuthModal() {
-    document.getElementById('srSupervisorAuthModal')?.classList.add('hidden');
-}
-
-async function submitSupervisorEditApproval(event) {
-    event.preventDefault();
-    const selectedRole = document.getElementById('srAuthRoleSelect')?.value || 'Head Technical';
-    const typedPass = (document.getElementById('srAuthPasswordInput')?.value || '').trim();
-    const errEl = document.getElementById('srAuthErrorMsg');
-
-    let isValid = false;
-
-    // Verify using the same SHA-256 verification from login-portal.js
-    if (typeof verifyClientHash === 'function') {
-        isValid = await verifyClientHash(selectedRole, typedPass);
-    } else {
-        const expected = selectedRole === 'MasterAdmin' ? atob('c2VpcmFsYWJhZG1pbg==') : atob('c2VpcmFsYWJoZWFk');
-        isValid = (typedPass === expected);
-    }
-
-    if (!isValid) {
-        if (errEl) {
-            errEl.innerText = `Invalid ${selectedRole} password. Edit permission denied.`;
-            errEl.classList.remove('hidden');
-        }
-        return;
-    }
-
-    tempSupervisorAuthorized = true;
-    closeSupervisorAuthModal();
-
-    const log = (window.historyLogs || []).find(l => String(l.id) === String(currentEditingLogId));
-    if (log) {
-        unlockServiceReportEditMode(log);
-        if (typeof showNotificationToast === 'function') {
-            showNotificationToast(`Authorized by ${selectedRole}. Report #${log.reportNo} unlocked for editing.`);
-        }
-    }
-}
-
-// Save either a newly registered Service Report OR an authorized edit
 async function saveRegisteredServiceReport() {
     if (currentServiceReportMode === 'view') return;
-    if (currentServiceReportMode === 'edit' && !isHeadOrAdminRole() && !tempSupervisorAuthorized) {
+
+    const editingLog = (window.historyLogs || []).find(l => String(l.id) === String(currentEditingLogId));
+    if (currentServiceReportMode === 'edit' && !isHeadOrAdminRole() && editingLog?.editRequestStatus !== 'approved') {
         requestEditServiceReport(currentEditingLogId);
         return;
     }
@@ -1923,7 +2050,6 @@ async function saveRegisteredServiceReport() {
         return;
     }
 
-    // Build Activity Type label from checked boxes or complaints
     const checkedLabels = [];
     if (srDetails.chkWarranty) checkedLabels.push('Warranty');
     if (srDetails.chkOutWarranty) checkedLabels.push('Out of Warranty');
@@ -1942,7 +2068,6 @@ async function saveRegisteredServiceReport() {
     let commitMessage = '';
 
     if (currentServiceReportMode === 'register') {
-        // Strictly guarantee no duplicate report number on registration
         const finalReportNo = (window.historyLogs || []).some(l => String(l.reportNo) === String(reportNoInput))
             ? getNextAvailableServiceReportNo()
             : reportNoInput;
@@ -1958,7 +2083,8 @@ async function saveRegisteredServiceReport() {
             type: activityType,
             tech: srDetails.technicianName || (window.currentAccessRole || 'Biomedical Engineer'),
             notes: combinedNotes,
-            srDetails: srDetails
+            srDetails: srDetails,
+            editRequestStatus: 'none'
         };
 
         window.historyLogs.unshift(newLog);
@@ -1981,18 +2107,18 @@ async function saveRegisteredServiceReport() {
                 type: activityType,
                 tech: srDetails.technicianName || window.historyLogs[idx].tech,
                 notes: combinedNotes,
-                srDetails: srDetails
+                srDetails: srDetails,
+                // Reset approval status after the edit is completed so future edits require approval again
+                editRequestStatus: 'none',
+                editRequestReason: ''
             };
-            commitMessage = `Edit Service Report #${preservedReportNo} (${displayEqName})`;
+            commitMessage = `Save Edited Service Report #${preservedReportNo} (${displayEqName})`;
             if (typeof showNotificationToast === 'function') {
                 showNotificationToast(`Saved changes to Service Report #${preservedReportNo}!`);
             }
         }
     }
 
-    tempSupervisorAuthorized = false;
-
-    // Sync to localStorage & app.js variable
     localStorage.setItem('seiralab_history', JSON.stringify(window.historyLogs));
     try {
         if (typeof historyLogs !== 'undefined') historyLogs = window.historyLogs;
@@ -2008,16 +2134,87 @@ async function saveRegisteredServiceReport() {
 }
 
 function closeServiceReportModal() {
-    tempSupervisorAuthorized = false;
     document.getElementById('seiralabServiceReportModal')?.classList.add('hidden');
 }
 
-// Upgrade the Maintenance History & Audit Logs table with Series Badge + [Edit] and [Viewing] buttons
+// Render a Pending Edit Requests Approval Queue Banner for Head Technical & MasterAdmin
+function renderPendingEditRequestsBanner() {
+    const historySection = document.getElementById('history');
+    if (!historySection) return;
+
+    let banner = document.getElementById('srPendingApprovalsBanner');
+    const pendingLogs = (window.historyLogs || []).filter(l => l.editRequestStatus === 'pending');
+
+    if (pendingLogs.length === 0) {
+        if (banner) banner.remove();
+        return;
+    }
+
+    if (!banner) {
+        banner = document.createElement('div');
+        banner.id = 'srPendingApprovalsBanner';
+        const firstChild = historySection.querySelector('div:first-child');
+        if (firstChild && firstChild.nextSibling) {
+            historySection.insertBefore(banner, firstChild.nextSibling);
+        } else {
+            historySection.prepend(banner);
+        }
+    }
+
+    const canApprove = isHeadOrAdminRole();
+
+    let itemsHTML = '';
+    pendingLogs.forEach(log => {
+        const safeId = String(log.id).replace(/'/g, "\\'");
+        const actionControls = canApprove
+            ? `<div class="flex items-center space-x-2 shrink-0">
+                    <button type="button" onclick="resolveServiceReportEditRequest('${safeId}', 'accept')" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-xs inline-flex items-center space-x-1 cursor-pointer transition-colors">
+                        <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                        <span>Accept</span>
+                    </button>
+                    <button type="button" onclick="resolveServiceReportEditRequest('${safeId}', 'decline')" class="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold shadow-xs inline-flex items-center space-x-1 cursor-pointer transition-colors">
+                        <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                        <span>Decline</span>
+                    </button>
+               </div>`
+            : `<span class="px-2.5 py-1 bg-amber-200/80 text-amber-900 rounded-full text-[11px] font-bold shrink-0">Awaiting Head / Admin Approval</span>`;
+
+        itemsHTML += `
+            <div class="bg-white/90 border border-amber-300 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                    <div class="flex items-center space-x-2">
+                        <span class="px-2 py-0.5 bg-amber-100 text-amber-900 font-mono text-xs font-bold rounded">SR #${log.reportNo || '05535'}</span>
+                        <span class="text-xs font-bold text-slate-900">${log.eqName} — ${log.facility}</span>
+                    </div>
+                    <p class="text-xs text-slate-600 mt-1">
+                        <span class="font-semibold text-slate-800">Requested by ${log.editRequestedBy || 'Technical'}:</span>
+                        "${log.editRequestReason || 'Requesting permission to update service report details.'}"
+                    </p>
+                </div>
+                ${actionControls}
+            </div>
+        `;
+    });
+
+    banner.className = 'mb-4 bg-amber-50 border border-amber-300 rounded-2xl p-4 shadow-xs space-y-2.5';
+    banner.innerHTML = `
+        <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-2 text-amber-900 font-bold text-xs uppercase tracking-wider">
+                <i data-lucide="bell-ring" class="w-4 h-4 text-amber-600"></i>
+                <span>Pending Service Report Edit Requests (${pendingLogs.length})</span>
+            </div>
+            <span class="text-[11px] text-amber-700 font-medium">${canApprove ? 'Review and Accept or Decline below' : 'Head Technical or MasterAdmin can approve'}</span>
+        </div>
+        <div class="space-y-2">${itemsHTML}</div>
+    `;
+}
+
+// Upgrade the Maintenance History & Audit Logs table with Series Badge + [Edit/Request] + [Service Report] + [Delete (Head/Admin)]
 function upgradeMaintenanceHistoryCertificateButtons() {
     ensureServiceReportModalExists();
     ensureSequentialReportNumbers();
+    renderPendingEditRequestsBanner();
 
-    // 1. Ensure top "Service Report Form" button opens New Registration with next sequential number
     const historySection = document.getElementById('history');
     if (historySection) {
         const headerContainer = historySection.querySelector('div:first-child');
@@ -2043,50 +2240,151 @@ function upgradeMaintenanceHistoryCertificateButtons() {
         openServiceReportForViewing(logId);
     };
 
-    // 2. Upgrade every row in #historyTableBody to show Report Series # + [Edit] + [Service Report (View)]
+    const isSupervisor = isHeadOrAdminRole();
+    const isVis = isVisitorMode();
+
     const historyTbody = document.getElementById('historyTableBody');
     if (historyTbody) {
         const rows = historyTbody.querySelectorAll('tr');
         rows.forEach((tr, idx) => {
             const actionCell = tr.querySelector('td:last-child');
-            const origBtn = actionCell?.querySelector('button');
-            if (!actionCell || !origBtn) return;
+            if (!actionCell) return;
 
-            // Extract logId from original onclick="downloadCertificate(123)" or match by index
-            const onclickAttr = origBtn.getAttribute('onclick') || '';
+            const origBtn = actionCell.querySelector('button');
+            const onclickAttr = origBtn ? (origBtn.getAttribute('onclick') || '') : '';
             const idMatch = onclickAttr.match(/\(([^)]+)\)/);
-            const rawLogId = idMatch ? idMatch[1].replace(/['"]/g, '') : (window.historyLogs?.[idx]?.id || '');
+            const rawLogId = idMatch ? idMatch[1].replace(/['"]/g, '').split(',')[0].trim() : (window.historyLogs?.[idx]?.id || '');
             const matchedLog = (window.historyLogs || []).find(l => String(l.id) === String(rawLogId)) || window.historyLogs?.[idx];
             if (!matchedLog) return;
 
             const safeId = String(matchedLog.id).replace(/'/g, "\\'");
             const seriesNo = matchedLog.reportNo || '05535';
+            const reqStatus = matchedLog.editRequestStatus || 'none';
 
-            // Display Series Badge under Service Date in Column 1 if not already added
+            // Display Series Badge + Status Badge under Service Date in Column 1
             const dateCell = tr.querySelector('td:first-child');
-            if (dateCell && !dateCell.querySelector('.sr-series-pill')) {
+            if (dateCell) {
+                dateCell.querySelectorAll('.sr-series-pill').forEach(el => el.remove());
+                let statusPill = '';
+                if (reqStatus === 'pending') {
+                    statusPill = `<span class="ml-1 px-1.5 py-0.5 bg-amber-100 text-amber-800 border border-amber-300 text-[10px] font-bold rounded">Pending Edit</span>`;
+                } else if (reqStatus === 'approved') {
+                    statusPill = `<span class="ml-1 px-1.5 py-0.5 bg-emerald-100 text-emerald-800 border border-emerald-300 text-[10px] font-bold rounded">Edit Approved</span>`;
+                } else if (reqStatus === 'declined') {
+                    statusPill = `<span class="ml-1 px-1.5 py-0.5 bg-rose-100 text-rose-700 border border-rose-200 text-[10px] font-bold rounded">Declined</span>`;
+                }
+
                 dateCell.insertAdjacentHTML(
                     'beforeend',
-                    `<div class="sr-series-pill mt-1 inline-block px-2 py-0.5 bg-slate-100 border border-slate-300 text-slate-800 font-mono text-[11px] font-bold rounded">SR #${seriesNo}</div>`
+                    `<div class="sr-series-pill mt-1 flex flex-wrap items-center gap-1">
+                        <span class="px-2 py-0.5 bg-slate-100 border border-slate-300 text-slate-800 font-mono text-[11px] font-bold rounded">SR #${seriesNo}</span>
+                        ${statusPill}
+                     </div>`
                 );
             }
 
-            // Replace single button with [Edit] (Protected) + [Service Report] (Viewing)
+            // Build Edit / Request / Approve / Decline Buttons
+            let editButtonsHTML = '';
+            if (!isVis) {
+                if (isSupervisor) {
+                    if (reqStatus === 'pending') {
+                        editButtonsHTML = `
+                            <button type="button" onclick="resolveServiceReportEditRequest('${safeId}', 'accept')" class="px-2 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold text-xs inline-flex items-center space-x-1 transition-colors cursor-pointer" title="Accept Edit Request from ${matchedLog.editRequestedBy || 'Technical'}">
+                                <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                                <span>Accept</span>
+                            </button>
+                            <button type="button" onclick="resolveServiceReportEditRequest('${safeId}', 'decline')" class="px-2 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg font-semibold text-xs inline-flex items-center space-x-1 transition-colors cursor-pointer" title="Decline Edit Request">
+                                <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                                <span>Decline</span>
+                            </button>
+                        `;
+                    }
+                    editButtonsHTML += `
+                        <button type="button" onclick="requestEditServiceReport('${safeId}')" class="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg font-semibold text-xs inline-flex items-center space-x-1 transition-colors cursor-pointer" title="Edit Service Report #${seriesNo}">
+                            <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
+                            <span>Edit</span>
+                        </button>
+                    `;
+                } else {
+                    // Technical Role
+                    if (reqStatus === 'pending') {
+                        editButtonsHTML = `
+                            <button type="button" onclick="requestEditServiceReport('${safeId}')" class="px-2.5 py-1.5 bg-amber-100 text-amber-900 border border-amber-300 rounded-lg font-semibold text-xs inline-flex items-center space-x-1 cursor-pointer" title="Waiting for Head Technical or MasterAdmin approval">
+                                <i data-lucide="clock" class="w-3.5 h-3.5"></i>
+                                <span>Requested</span>
+                            </button>
+                        `;
+                    } else if (reqStatus === 'approved') {
+                        editButtonsHTML = `
+                            <button type="button" onclick="requestEditServiceReport('${safeId}')" class="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold text-xs inline-flex items-center space-x-1 shadow-xs cursor-pointer" title="Approved! Click to Edit Service Report">
+                                <i data-lucide="unlock" class="w-3.5 h-3.5"></i>
+                                <span>Edit (Approved)</span>
+                            </button>
+                        `;
+                    } else {
+                        editButtonsHTML = `
+                            <button type="button" onclick="requestEditServiceReport('${safeId}')" class="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg font-semibold text-xs inline-flex items-center space-x-1 transition-colors cursor-pointer" title="Send Edit Request to Head Technical / MasterAdmin">
+                                <i data-lucide="send" class="w-3.5 h-3.5"></i>
+                                <span>Request Edit</span>
+                            </button>
+                        `;
+                    }
+                }
+            }
+
+            // Delete Button ONLY for Head Technical and MasterAdmin
+            const deleteBtnHTML = isSupervisor ? `
+                <button type="button" onclick="deleteServiceReportLog('${safeId}')" class="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-lg transition-colors cursor-pointer" title="Delete Service Report (Head / Admin Only)">
+                    <i data-lucide="trash-2" class="w-4 h-4"></i>
+                </button>
+            ` : '';
+
             actionCell.innerHTML = `
                 <div class="inline-flex items-center justify-end space-x-1.5">
-                    <button type="button" onclick="requestEditServiceReport('${safeId}')" class="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg font-semibold text-xs inline-flex items-center space-x-1 transition-colors cursor-pointer" title="Edit Service Report (Requires Head Technical or MasterAdmin)">
-                        <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
-                        <span>Edit</span>
-                    </button>
+                    ${editButtonsHTML}
                     <button type="button" onclick="openServiceReportForViewing('${safeId}')" class="px-3 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-700 border border-teal-200 rounded-lg font-semibold text-xs inline-flex items-center space-x-1.5 transition-colors cursor-pointer" title="View & Print Service Report #${seriesNo}">
                         <i data-lucide="eye" class="w-3.5 h-3.5"></i>
                         <span>Service Report</span>
                     </button>
+                    ${deleteBtnHTML}
                 </div>
             `;
         });
     }
     if (window.lucide) lucide.createIcons();
+}
+
+// Hook into Notification Center so pending edit requests also show in the top Bell icon
+const baseBuildNotifications = window.renderNotifications;
+if (typeof baseBuildNotifications === 'function') {
+    window.renderNotifications = function () {
+        baseBuildNotifications();
+        const list = document.getElementById('notificationList');
+        const badge = document.getElementById('notificationBadge');
+        const pendingLogs = (window.historyLogs || []).filter(l => l.editRequestStatus === 'pending');
+        if (list && pendingLogs.length > 0) {
+            pendingLogs.forEach(log => {
+                const itemHTML = `
+                    <div onclick="jumpFromNotification('history')" class="p-3 rounded-xl border bg-amber-50 border-amber-300 hover:bg-amber-100/80 text-amber-900 flex items-start justify-between cursor-pointer transition-colors mb-2">
+                        <div class="flex items-start space-x-2.5">
+                            <span class="w-2 h-2 rounded-full bg-amber-500 mt-1.5 shrink-0 animate-ping"></span>
+                            <div>
+                                <p class="text-xs font-bold">Edit Request: SR #${log.reportNo} (${log.eqName})</p>
+                                <p class="text-[11px] opacity-85 mt-0.5">${log.editRequestedBy || 'Technical'}: "${log.editRequestReason || 'Needs update'}"</p>
+                            </div>
+                        </div>
+                        <span class="text-[10px] font-semibold underline ml-2 shrink-0">Review &rarr;</span>
+                    </div>
+                `;
+                list.insertAdjacentHTML('afterbegin', itemHTML);
+            });
+            if (badge) {
+                const currentCount = parseInt(badge.innerText || '0', 10) || 0;
+                badge.innerText = currentCount + pendingLogs.length;
+                badge.classList.remove('hidden');
+            }
+        }
+    };
 }
 
 const origRenderHistoryTable = window.renderHistoryTable;
@@ -2097,16 +2395,29 @@ if (typeof origRenderHistoryTable === 'function') {
     };
 }
 
+// Re-render buttons whenever the user switches role (so Delete & Accept/Decline appear/disappear dynamically)
+const origSwitchAccessRole = window.switchAccessRole;
+if (typeof origSwitchAccessRole === 'function') {
+    window.switchAccessRole = function () {
+        origSwitchAccessRole.apply(this, arguments);
+        upgradeMaintenanceHistoryCertificateButtons();
+    };
+}
+
 window.openServiceReportTemplate = openServiceReportForViewing;
 window.openNewServiceReportRegistration = openNewServiceReportRegistration;
 window.openServiceReportForViewing = openServiceReportForViewing;
 window.requestEditServiceReport = requestEditServiceReport;
+window.closeEditRequestModal = closeEditRequestModal;
+window.submitTechnicalEditRequest = submitTechnicalEditRequest;
+window.resolveServiceReportEditRequest = resolveServiceReportEditRequest;
+window.deleteServiceReportLog = deleteServiceReportLog;
 window.saveRegisteredServiceReport = saveRegisteredServiceReport;
-window.submitSupervisorEditApproval = submitSupervisorEditApproval;
-window.closeSupervisorAuthModal = closeSupervisorAuthModal;
 window.closeServiceReportModal = closeServiceReportModal;
 
 window.addEventListener('DOMContentLoaded', function () {
     setTimeout(upgradeMaintenanceHistoryCertificateButtons, 250);
+});
+setTimeout(upgradeMaintenanceHistoryCertificateButtons, 400);
 });
 setTimeout(upgradeMaintenanceHistoryCertificateButtons, 400);
