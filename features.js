@@ -1,6 +1,5 @@
 // ============================================================================
-// SEIRALAB CMMS - FEATURES.JS (BULLETPROOF SELF-HEALING EDITION)
-// Zero scope conflicts with login-portal.js / app.js + Continuous DOM Watchdog
+// SEIRALAB CMMS - FEATURES.JS (ZERO-LAG + INSTALLED DATE + PULL OUT + LIVE ACTIONS)
 // ============================================================================
 
 (function () {
@@ -31,6 +30,12 @@
             editRequestStatus: "none"
         }
     ];
+
+    // Pre-compiled inline SVGs (eliminates lucide.createIcons() lag on large tables)
+    const SVG_CLIPBOARD = `<svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></svg>`;
+    const SVG_EDIT = `<svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>`;
+    const SVG_TRASH = `<svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>`;
+    const SVG_EYE = `<svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>`;
 
     try {
         window.toolLogs = JSON.parse(localStorage.getItem('seiralab_tool_logs') || 'null') || DEFAULT_TOOL_LOGS;
@@ -67,12 +72,114 @@
     let currentEditingCalId = null;
     let currentServiceReportMode = 'register';
     let currentEditingLogId = null;
+    let searchDebounceTimer = null;
+
+    // Normalize "Out of Service" / "Decommissioned" -> "PULL OUT"
+    function normalizeStatusLabel(rawStatus) {
+        const s = String(rawStatus || 'Operational').trim();
+        const low = s.toLowerCase();
+        if (low.includes('pull') || low.includes('out of service') || low.includes('decom')) {
+            return 'PULL OUT';
+        }
+        if (low.includes('repair') || low.includes('defective') || low.includes('not functional')) {
+            return 'Under Repair';
+        }
+        if (low.includes('due')) {
+            return 'Maintenance Due';
+        }
+        return 'Operational';
+    }
+
+    // Update all Status dropdowns & change "NEXT PM DUE" header to "INSTALLED DATE"
+    function enforceInstalledDateAndPullOutUI() {
+        document.querySelectorAll('select').forEach(sel => {
+            Array.from(sel.options).forEach(opt => {
+                const txt = opt.textContent.trim().toLowerCase();
+                const val = opt.value.trim().toLowerCase();
+                if (txt.includes('out of service') || txt.includes('decommissioned') || val.includes('out of service') || val.includes('decommissioned')) {
+                    opt.value = 'PULL OUT';
+                    opt.textContent = 'PULL OUT';
+                }
+            });
+        });
+
+        const invThs = document.querySelectorAll('#inventory table thead th');
+        invThs.forEach(th => {
+            const label = th.innerText.trim().toUpperCase();
+            if (label.includes('NEXT PM') || label === 'DUE DATE') {
+                th.innerText = 'INSTALLED DATE';
+            }
+        });
+    }
 
     // ========================================================================
-    // 0. SELF-HEALING MODALS (Waits until document.body is ready)
+    // 0. SELF-HEALING MODALS
     // ========================================================================
     function ensureFeatureModalsExist() {
         if (!document.body) return;
+
+        // 0A. Dedicated Edit Equipment Modal (Makes Pencil Edit Button Work on All 648+ Items)
+        if (!document.getElementById('seiralabEditEquipmentModal')) {
+            const editEqHTML = `
+            <div id="seiralabEditEquipmentModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[115] hidden flex items-center justify-center p-4">
+                <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
+                    <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+                        <h3 class="font-bold text-slate-900 text-base flex items-center space-x-2">
+                            <span class="text-teal-600">${SVG_EDIT}</span>
+                            <span>Edit Equipment Asset</span>
+                        </h3>
+                        <button type="button" onclick="closeInventoryEditModal()" class="text-slate-400 hover:text-slate-600 p-1 text-xl leading-none cursor-pointer">&times;</button>
+                    </div>
+                    <form onsubmit="saveInventoryEditedAsset(event)" class="space-y-3.5 pt-4 text-xs sm:text-sm">
+                        <input type="hidden" id="editAssetTargetId" value="">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Equipment Name *</label>
+                                <input type="text" id="editAssetName" required class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Model *</label>
+                                <input type="text" id="editAssetModel" required class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Serial / ID *</label>
+                                <input type="text" id="editAssetSerial" required class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-teal-500">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Installed Date *</label>
+                                <input type="date" id="editAssetInstalledDate" required class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Hospital / Laboratory Facility *</label>
+                            <input type="text" id="editAssetFacility" required class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Department / Section *</label>
+                                <input type="text" id="editAssetDept" required class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Status *</label>
+                                <select id="editAssetStatus" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500">
+                                    <option value="Operational">Operational</option>
+                                    <option value="Maintenance Due">Maintenance Due</option>
+                                    <option value="Under Repair">Under Repair</option>
+                                    <option value="PULL OUT">PULL OUT</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="pt-3 flex items-center justify-end space-x-2.5 border-t border-slate-100">
+                            <button type="button" onclick="closeInventoryEditModal()" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-lg cursor-pointer">Cancel</button>
+                            <button type="submit" class="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs rounded-lg shadow-xs cursor-pointer">Save Equipment Changes</button>
+                        </div>
+                    </form>
+                </div>
+            </div>`;
+            document.body.insertAdjacentHTML('beforeend', editEqHTML);
+        }
 
         // 1. Borrow Tool Modal
         if (!document.getElementById('borrowToolModal')) {
@@ -80,13 +187,8 @@
             <div id="borrowToolModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
                 <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
                     <div class="flex items-center justify-between pb-4 border-b border-slate-100">
-                        <h3 id="borrowToolModalTitle" class="font-bold text-slate-900 text-lg flex items-center space-x-2">
-                            <i data-lucide="wrench" class="w-5 h-5 text-teal-600"></i>
-                            <span>Borrow Tool / Test Kit from Biomed Office</span>
-                        </h3>
-                        <button type="button" onclick="closeBorrowToolModal()" class="text-slate-400 hover:text-slate-600 p-1 rounded-lg">
-                            <i data-lucide="x" class="w-5 h-5"></i>
-                        </button>
+                        <h3 id="borrowToolModalTitle" class="font-bold text-slate-900 text-lg">Borrow Tool / Test Kit from Biomed Office</h3>
+                        <button type="button" onclick="closeBorrowToolModal()" class="text-slate-400 hover:text-slate-600 p-1 text-xl leading-none cursor-pointer">&times;</button>
                     </div>
                     <form id="borrowToolForm" onsubmit="saveToolBorrow(event)" class="space-y-4 pt-4">
                         <input type="hidden" id="editToolLogId" value="">
@@ -119,8 +221,8 @@
                             </div>
                         </div>
                         <div class="pt-4 flex items-center justify-end space-x-3">
-                            <button type="button" onclick="closeBorrowToolModal()" class="px-4 py-2 bg-slate-100 text-slate-700 font-medium text-sm rounded-lg">Cancel</button>
-                            <button type="submit" id="borrowToolSubmitBtn" class="px-4 py-2 bg-teal-600 text-white font-medium text-sm rounded-lg">Record Check-Out</button>
+                            <button type="button" onclick="closeBorrowToolModal()" class="px-4 py-2 bg-slate-100 text-slate-700 font-medium text-sm rounded-lg cursor-pointer">Cancel</button>
+                            <button type="submit" id="borrowToolSubmitBtn" class="px-4 py-2 bg-teal-600 text-white font-medium text-sm rounded-lg cursor-pointer">Record Check-Out</button>
                         </div>
                     </form>
                 </div>
@@ -150,15 +252,12 @@
             const calCertModalHTML = `
             <div id="seiralabCalibrationCertModal" class="fixed inset-0 bg-slate-900/75 backdrop-blur-xs z-[120] hidden overflow-y-auto p-3 sm:p-6 flex flex-col items-center">
                 <div id="calCertToolbar" class="w-full max-w-3xl bg-slate-900 text-white rounded-t-2xl px-5 py-3.5 flex flex-wrap items-center justify-between gap-3 border border-slate-700 shadow-xl">
-                    <div class="flex items-center space-x-2.5">
-                        <i data-lucide="award" class="w-5 h-5 text-teal-400"></i>
-                        <div>
-                            <div class="flex items-center space-x-2">
-                                <h3 class="text-sm font-bold">Official Certificate of Calibration</h3>
-                                <span id="calCertModeBadge" class="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">New</span>
-                            </div>
-                            <p class="text-[11px] text-slate-400">Official Metrology Compliance Certificate</p>
+                    <div>
+                        <div class="flex items-center space-x-2">
+                            <h3 class="text-sm font-bold">Official Certificate of Calibration</h3>
+                            <span id="calCertModeBadge" class="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">New</span>
                         </div>
+                        <p class="text-[11px] text-slate-400">Official Metrology Compliance Certificate</p>
                     </div>
                     <div class="flex items-center space-x-2">
                         <button type="button" id="calBtnRequestEdit" onclick="openEditCalibrationModal(window._activeCalId)" class="hidden px-3.5 py-2 bg-amber-600 text-white font-semibold text-xs rounded-lg cursor-pointer"><span id="calBtnRequestEditLabel">Request Edit</span></button>
@@ -227,14 +326,11 @@
             <div id="calEditRequestModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-xs z-[130] hidden flex items-center justify-center p-4">
                 <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
                     <div class="flex items-center justify-between pb-3 border-b border-slate-100">
-                        <div class="flex items-center space-x-2.5">
-                            <div class="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center"><i data-lucide="send" class="w-5 h-5"></i></div>
-                            <div>
-                                <h4 class="text-sm font-bold text-slate-900">Request Calibration Edit</h4>
-                                <p id="calEditReqLabel" class="text-[11px] text-slate-500">Send edit request to Head Technical / MasterAdmin</p>
-                            </div>
+                        <div>
+                            <h4 class="text-sm font-bold text-slate-900">Request Calibration Edit</h4>
+                            <p id="calEditReqLabel" class="text-[11px] text-slate-500">Send edit request to Head Technical / MasterAdmin</p>
                         </div>
-                        <button type="button" onclick="document.getElementById('calEditRequestModal').classList.add('hidden')" class="text-slate-400 p-1"><i data-lucide="x" class="w-4 h-4"></i></button>
+                        <button type="button" onclick="document.getElementById('calEditRequestModal').classList.add('hidden')" class="text-slate-400 p-1">&times;</button>
                     </div>
                     <form onsubmit="submitCalibrationEditRequest(event)" class="space-y-4 pt-4">
                         <div>
@@ -279,15 +375,12 @@
             const srModalHTML = `
             <div id="seiralabServiceReportModal" class="fixed inset-0 bg-slate-900/75 backdrop-blur-xs z-[120] hidden overflow-y-auto p-3 sm:p-6 flex flex-col items-center">
                 <div id="srModalToolbar" class="w-full max-w-4xl bg-slate-900 text-white rounded-t-2xl px-5 py-3.5 flex flex-wrap items-center justify-between gap-3 border border-slate-700 shadow-xl">
-                    <div class="flex items-center space-x-2.5">
-                        <i data-lucide="file-text" class="w-5 h-5 text-teal-400"></i>
-                        <div>
-                            <div class="flex items-center space-x-2">
-                                <h3 class="text-sm font-bold">Seiralab Official Service Report</h3>
-                                <span id="srModeBadge" class="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">New</span>
-                            </div>
-                            <p id="srModalSubtitleText" class="text-[11px] text-slate-400">Fill out details below and click Register</p>
+                    <div>
+                        <div class="flex items-center space-x-2">
+                            <h3 class="text-sm font-bold">Seiralab Official Service Report</h3>
+                            <span id="srModeBadge" class="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">New</span>
                         </div>
+                        <p id="srModalSubtitleText" class="text-[11px] text-slate-400">Fill out details below and click Register</p>
                     </div>
                     <div class="flex items-center space-x-2">
                         <button type="button" id="srBtnUnlockEdit" onclick="requestEditServiceReport(window._activeSrLogId)" class="hidden px-3.5 py-2 bg-amber-600 text-white font-semibold text-xs rounded-lg cursor-pointer"><span id="srBtnUnlockEditLabel">Request Edit</span></button>
@@ -338,7 +431,7 @@
                         </div>
                         <div class="grid grid-cols-1 sm:grid-cols-12 gap-3">
                             <div class="sm:col-span-6 flex items-end"><span class="font-bold shrink-0 mr-1.5">Address / Area:</span><input type="text" id="srEqArea1" class="w-full border-b border-slate-800 px-1 py-0.5 focus:outline-none"></div>
-                            <div class="sm:col-span-6 flex items-end"><span class="font-bold shrink-0 mr-1.5">Next Due / Status:</span><input type="text" id="srEqArea2" class="w-full border-b border-slate-800 px-1 py-0.5 focus:outline-none"></div>
+                            <div class="sm:col-span-6 flex items-end"><span class="font-bold shrink-0 mr-1.5">Installed / Status:</span><input type="text" id="srEqArea2" class="w-full border-b border-slate-800 px-1 py-0.5 focus:outline-none"></div>
                         </div>
                     </div>
                     <div class="border-2 border-slate-900 mb-3">
@@ -386,14 +479,11 @@
             <div id="srEditRequestModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-xs z-[130] hidden flex items-center justify-center p-4">
                 <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
                     <div class="flex items-center justify-between pb-3 border-b border-slate-100">
-                        <div class="flex items-center space-x-2.5">
-                            <div class="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center"><i data-lucide="send" class="w-5 h-5"></i></div>
-                            <div>
-                                <h4 class="text-sm font-bold text-slate-900">Request Permission to Edit</h4>
-                                <p id="srEditRequestTargetLabel" class="text-[11px] text-slate-500">Send request to Head Technical / MasterAdmin</p>
-                            </div>
+                        <div>
+                            <h4 class="text-sm font-bold text-slate-900">Request Permission to Edit</h4>
+                            <p id="srEditRequestTargetLabel" class="text-[11px] text-slate-500">Send request to Head Technical / MasterAdmin</p>
                         </div>
-                        <button type="button" onclick="closeEditRequestModal()" class="text-slate-400 p-1"><i data-lucide="x" class="w-4 h-4"></i></button>
+                        <button type="button" onclick="closeEditRequestModal()" class="text-slate-400 p-1">&times;</button>
                     </div>
                     <form onsubmit="submitTechnicalEditRequest(event)" class="space-y-4 pt-4">
                         <div>
@@ -413,6 +503,8 @@
             </div>`;
             document.body.insertAdjacentHTML('beforeend', modalHtml);
         }
+
+        enforceInstalledDateAndPullOutUI();
     }
 
     function syncCalLotFooter() {
@@ -426,16 +518,14 @@
     window.syncCalLotFooter = syncCalLotFooter;
 
     // ========================================================================
-    // 1. NOTIFICATIONS
+    // 1. NOTIFICATIONS (Fast Batch Join)
     // ========================================================================
     function buildSystemNotifications() {
         const list = document.getElementById('notificationList');
         const badge = document.getElementById('notificationBadge');
         if (!list) return;
 
-        const today = new Date();
         const alerts = [];
-
         (window.historyLogs || []).forEach(log => {
             if (log.editRequestStatus === 'pending') {
                 alerts.push({ type: 'editreq', title: `Service Report Edit Request: SR #${log.reportNo || '05535'}`, desc: `${log.editRequestedBy || 'Technical'}: "${log.editRequestReason || 'Requests edit approval'}"`, tab: 'history' });
@@ -445,22 +535,10 @@
             if (cal.editRequestStatus === 'pending') {
                 alerts.push({ type: 'editreq', title: `Calibration Edit Request: Cert #${cal.id}`, desc: `${cal.editRequestedBy || 'Technical'}: "${cal.editRequestReason || 'Requests edit approval'}"`, tab: 'calibration' });
             }
-            const diffDays = Math.ceil((new Date(cal.nextDue) - today) / (1000 * 60 * 60 * 24));
-            if (diffDays <= 30) {
-                alerts.push({ type: diffDays < 0 ? 'overdue' : 'upcoming', title: `${diffDays < 0 ? 'Recalibration Overdue' : 'Recalibration Due'}: ${cal.eqName}`, desc: `Cert ${cal.id} at ${cal.facility} — Due ${cal.nextDue}`, tab: 'calibration' });
-            }
-        });
-        (window.equipmentList || []).forEach(eq => {
-            const diffDays = Math.ceil((new Date(eq.nextDue) - today) / (1000 * 60 * 60 * 24));
-            if (diffDays < 0) {
-                alerts.push({ type: 'overdue', title: `Overdue PM: ${eq.name}`, desc: `${eq.facility} (${eq.model}) — Overdue by ${Math.abs(diffDays)} days (Due: ${eq.nextDue})`, tab: 'schedule' });
-            } else if (diffDays <= 14) {
-                alerts.push({ type: 'upcoming', title: `Upcoming PM Due in ${diffDays}d: ${eq.name}`, desc: `${eq.facility} (${eq.model}) — Scheduled for ${eq.nextDue}`, tab: 'schedule' });
-            }
         });
         (window.toolLogs || []).forEach(tool => {
             if (tool.status === 'Borrowed') {
-                alerts.push({ type: 'tool', title: `Tool Currently Out: ${tool.toolName}`, desc: `Borrowed by ${tool.borrower} for ${tool.destination} (${tool.borrowDate})`, tab: 'tools' });
+                alerts.push({ type: 'tool', title: `Tool Out: ${tool.toolName}`, desc: `Borrowed by ${tool.borrower} (${tool.borrowDate})`, tab: 'tools' });
             }
         });
 
@@ -474,20 +552,18 @@
             }
         }
 
-        list.innerHTML = '';
         if (alerts.length === 0) {
-            list.innerHTML = `<div class="py-8 text-center text-xs text-slate-400">All clear! No urgent maintenance, calibration, or tool alerts.</div>`;
+            list.innerHTML = `<div class="py-8 text-center text-xs text-slate-400">All clear! No urgent alerts.</div>`;
             return;
         }
 
-        alerts.slice(0, 30).forEach(a => {
+        list.innerHTML = alerts.slice(0, 20).map(a => {
             const boxStyle = a.type === 'overdue' ? 'bg-rose-50 border-rose-200 text-rose-900' : 'bg-amber-50 border-amber-200 text-amber-900';
-            list.innerHTML += `
-                <div onclick="jumpFromNotification('${a.tab}')" class="p-3 rounded-xl border ${boxStyle} flex items-start justify-between cursor-pointer transition-colors mb-2">
-                    <div><p class="text-xs font-bold">${a.title}</p><p class="text-[11px] opacity-80 mt-0.5">${a.desc}</p></div>
-                    <span class="text-[10px] font-semibold underline ml-2 shrink-0">View &rarr;</span>
-                </div>`;
-        });
+            return `<div onclick="jumpFromNotification('${a.tab}')" class="p-3 rounded-xl border ${boxStyle} flex items-start justify-between cursor-pointer transition-colors mb-2">
+                <div><p class="text-xs font-bold">${a.title}</p><p class="text-[11px] opacity-80 mt-0.5">${a.desc}</p></div>
+                <span class="text-[10px] font-semibold underline ml-2 shrink-0">View &rarr;</span>
+            </div>`;
+        }).join('');
     }
 
     function openNotificationModal() { buildSystemNotifications(); document.getElementById('notificationModal')?.classList.remove('hidden'); }
@@ -508,15 +584,12 @@
             calToolbar.className = 'flex items-center space-x-2.5 shrink-0 flex-wrap gap-2';
             calToolbar.innerHTML = `
                 <button type="button" id="btnAddCalibrationReport" onclick="openAddCalibrationModal()" class="inline-flex items-center justify-center px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 font-semibold text-xs sm:text-sm shadow-xs transition-all space-x-1.5 whitespace-nowrap cursor-pointer">
-                    <i data-lucide="plus" class="w-4 h-4"></i>
-                    <span>Add Calibration Report</span>
+                    <span>+ Add Calibration Report</span>
                 </button>
                 <button type="button" id="btnPrintCalibrationReport" onclick="openLatestCalibrationCertForPrint()" class="inline-flex items-center justify-center px-4 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 font-semibold text-xs sm:text-sm shadow-xs transition-all space-x-1.5 whitespace-nowrap cursor-pointer">
-                    <i data-lucide="printer" class="w-4 h-4"></i>
                     <span>Print Calibration Report</span>
                 </button>
             `;
-            if (window.lucide) lucide.createIcons();
         }
     }
 
@@ -528,7 +601,7 @@
         const today = new Date();
         let dueSoonCount = 0;
         (window.calibrationList || []).forEach(item => {
-            const diffDays = Math.ceil((new Date(item.nextDue) - today) / (1000 * 60 * 60 * 24));
+            const diffDays = Math.ceil((new Date(item.nextDue) - today) / 86400000);
             if (diffDays <= 30) dueSoonCount++;
         });
 
@@ -537,7 +610,6 @@
         if (elTotal) elTotal.innerText = window.calibrationList.length;
         if (elDue) elDue.innerText = dueSoonCount;
 
-        tbody.innerHTML = '';
         if (window.calibrationList.length === 0) {
             tbody.innerHTML = `<tr><td colspan="7" class="py-8 text-center text-slate-400 text-sm">No calibration records found.</td></tr>`;
             return;
@@ -546,8 +618,8 @@
         const isVis = isVisitorUser();
         const isSup = isHeadOrAdminUser();
 
-        window.calibrationList.slice(0, 100).forEach(item => {
-            const diffDays = Math.ceil((new Date(item.nextDue) - today) / (1000 * 60 * 60 * 24));
+        tbody.innerHTML = window.calibrationList.slice(0, 80).map(item => {
+            const diffDays = Math.ceil((new Date(item.nextDue) - today) / 86400000);
             const dueColor = diffDays < 0 ? 'text-rose-600 font-semibold' : (diffDays <= 30 ? 'text-amber-600 font-semibold' : 'text-emerald-600 font-medium');
             const safeId = String(item.id).replace(/'/g, "\\'");
             const reqStatus = item.editRequestStatus || 'none';
@@ -558,41 +630,38 @@
                     if (reqStatus === 'pending') {
                         editBtnHTML += `<button type="button" onclick="resolveCalibrationEditRequest('${safeId}', 'accept')" class="px-2 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-semibold cursor-pointer">Accept</button>`;
                     }
-                    editBtnHTML += `<button type="button" onclick="openEditCalibrationModal('${safeId}')" class="px-2.5 py-1.5 bg-amber-50 text-amber-800 border border-amber-200 rounded-lg font-semibold text-xs inline-flex items-center space-x-1 cursor-pointer"><i data-lucide="edit-3" class="w-3.5 h-3.5"></i><span>Edit</span></button>`;
+                    editBtnHTML += `<button type="button" onclick="openEditCalibrationModal('${safeId}')" class="px-2.5 py-1.5 bg-amber-50 text-amber-800 border border-amber-200 rounded-lg font-semibold text-xs inline-flex items-center space-x-1 cursor-pointer"><span>Edit</span></button>`;
                 } else {
                     if (reqStatus === 'pending') {
                         editBtnHTML = `<button type="button" class="px-2.5 py-1.5 bg-amber-100 text-amber-900 rounded-lg text-xs font-semibold">Requested</button>`;
                     } else if (reqStatus === 'approved') {
-                        editBtnHTML = `<button type="button" onclick="openEditCalibrationModal('${safeId}')" class="px-2.5 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-semibold">Edit (Approved)</button>`;
+                        editBtnHTML = `<button type="button" onclick="openEditCalibrationModal('${safeId}')" class="px-2.5 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-semibold cursor-pointer">Edit (Approved)</button>`;
                     } else {
-                        editBtnHTML = `<button type="button" onclick="openEditCalibrationModal('${safeId}')" class="px-2.5 py-1.5 bg-amber-50 text-amber-800 border border-amber-200 rounded-lg text-xs font-semibold">Request Edit</button>`;
+                        editBtnHTML = `<button type="button" onclick="openEditCalibrationModal('${safeId}')" class="px-2.5 py-1.5 bg-amber-50 text-amber-800 border border-amber-200 rounded-lg text-xs font-semibold cursor-pointer">Request Edit</button>`;
                     }
                 }
             }
 
-            const deleteBtnHTML = isSup ? `<button type="button" onclick="deleteCalibrationReport('${safeId}')" class="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-lg cursor-pointer"><i data-lucide="trash-2" class="w-4 h-4"></i></button>` : '';
+            const deleteBtnHTML = isSup ? `<button type="button" onclick="deleteCalibrationReport('${safeId}')" class="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-lg cursor-pointer">${SVG_TRASH}</button>` : '';
 
-            tbody.innerHTML += `
-                <tr class="hover:bg-slate-50/50 transition-colors">
-                    <td class="p-4 font-mono font-bold text-red-600">${item.id}</td>
-                    <td class="p-4 font-semibold text-slate-900">${item.eqName}<br><span class="text-[11px] font-normal text-slate-500">SN: ${item.serial}</span></td>
-                    <td class="p-4 text-slate-700 font-medium">${item.facility}</td>
-                    <td class="p-4 text-slate-600">${item.calDate}</td>
-                    <td class="p-4 ${dueColor}">${item.nextDue}</td>
-                    <td class="p-4 text-xs font-semibold text-blue-700">${item.accuracy}</td>
-                    <td class="p-4 text-right">
-                        <div class="inline-flex items-center justify-end space-x-1.5">
-                            ${editBtnHTML}
-                            <button type="button" onclick="downloadCalibrationCert('${safeId}')" class="px-3 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-700 border border-teal-200 rounded-lg font-semibold text-xs inline-flex items-center space-x-1.5 cursor-pointer">
-                                <i data-lucide="award" class="w-3.5 h-3.5"></i>
-                                <span>Certificate</span>
-                            </button>
-                            ${deleteBtnHTML}
-                        </div>
-                    </td>
-                </tr>`;
-        });
-        if (window.lucide) lucide.createIcons();
+            return `<tr class="hover:bg-slate-50/50 transition-colors">
+                <td class="p-4 font-mono font-bold text-red-600">${item.id}</td>
+                <td class="p-4 font-semibold text-slate-900">${item.eqName}<br><span class="text-[11px] font-normal text-slate-500">SN: ${item.serial}</span></td>
+                <td class="p-4 text-slate-700 font-medium">${item.facility}</td>
+                <td class="p-4 text-slate-600">${item.calDate}</td>
+                <td class="p-4 ${dueColor}">${item.nextDue}</td>
+                <td class="p-4 text-xs font-semibold text-blue-700">${item.accuracy}</td>
+                <td class="p-4 text-right">
+                    <div class="inline-flex items-center justify-end space-x-1.5">
+                        ${editBtnHTML}
+                        <button type="button" onclick="downloadCalibrationCert('${safeId}')" class="px-3 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-700 border border-teal-200 rounded-lg font-semibold text-xs inline-flex items-center space-x-1.5 cursor-pointer">
+                            <span>Certificate</span>
+                        </button>
+                        ${deleteBtnHTML}
+                    </div>
+                </td>
+            </tr>`;
+        }).join('');
     }
 
     function setCalCertReadOnlyState(isReadOnly) {
@@ -662,7 +731,6 @@
         document.getElementById('calBtnSaveCertLabel').innerText = 'Register Certificate';
         document.getElementById('calBtnRequestEdit')?.classList.add('hidden');
         document.getElementById('seiralabCalibrationCertModal')?.classList.remove('hidden');
-        if (window.lucide) lucide.createIcons();
     }
 
     function downloadCalibrationCert(certId) {
@@ -687,7 +755,6 @@
         } else if (reqBtn) { reqBtn.classList.add('hidden'); }
 
         document.getElementById('seiralabCalibrationCertModal')?.classList.remove('hidden');
-        if (window.lucide) lucide.createIcons();
     }
 
     function openLatestCalibrationCertForPrint() {
@@ -712,14 +779,12 @@
             document.getElementById('calBtnSaveCertLabel').innerText = 'Save Edited Certificate';
             document.getElementById('calBtnRequestEdit')?.classList.add('hidden');
             document.getElementById('seiralabCalibrationCertModal')?.classList.remove('hidden');
-            if (window.lucide) lucide.createIcons();
             return;
         }
 
         document.getElementById('calEditReqLabel').innerText = `Certificate #${item.id} — ${item.eqName}`;
         document.getElementById('calReqReason').value = '';
         document.getElementById('calEditRequestModal')?.classList.remove('hidden');
-        if (window.lucide) lucide.createIcons();
     }
 
     async function submitCalibrationEditRequest(event) {
@@ -843,29 +908,26 @@
             return matchSearch && matchStatus;
         });
 
-        tbody.innerHTML = '';
         if (filtered.length === 0) { tbody.innerHTML = `<tr><td colspan="7" class="py-8 text-center text-slate-400 text-sm">No tool records found.</td></tr>`; return; }
 
         const isVis = isVisitorUser();
-        filtered.forEach(log => {
+        tbody.innerHTML = filtered.map(log => {
             const statusBadge = log.status === 'Borrowed' ? `<span class="px-2.5 py-1 bg-amber-100 text-amber-800 rounded-full text-xs font-semibold">Borrowed (Out)</span>` : `<span class="px-2.5 py-1 bg-emerald-100 text-emerald-700 rounded-full text-xs font-semibold">Returned</span>`;
             let actionBtns = `<span class="text-xs text-slate-400 italic">View Only</span>`;
             if (!isVis) {
-                const returnBtn = log.status === 'Borrowed' ? `<button type="button" onclick="markToolReturned(${log.id})" class="px-2.5 py-1.5 bg-teal-600 text-white rounded-lg text-xs font-medium">Return</button>` : '';
-                actionBtns = `<div class="inline-flex items-center space-x-1.5">${returnBtn}<button type="button" onclick="deleteToolLog(${log.id})" class="p-1.5 bg-rose-50 text-rose-600 rounded-lg"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div>`;
+                const returnBtn = log.status === 'Borrowed' ? `<button type="button" onclick="markToolReturned(${log.id})" class="px-2.5 py-1.5 bg-teal-600 text-white rounded-lg text-xs font-medium cursor-pointer">Return</button>` : '';
+                actionBtns = `<div class="inline-flex items-center space-x-1.5">${returnBtn}<button type="button" onclick="deleteToolLog(${log.id})" class="p-1.5 bg-rose-50 text-rose-600 rounded-lg cursor-pointer">${SVG_TRASH}</button></div>`;
             }
-            tbody.innerHTML += `
-                <tr class="hover:bg-slate-50/50 transition-colors">
-                    <td class="p-4 font-semibold text-slate-900">${log.borrower}</td>
-                    <td class="p-4 font-medium text-slate-800">${log.toolName}<br><span class="text-xs font-mono text-slate-400">ID: ${log.toolCode}</span></td>
-                    <td class="p-4 text-xs text-slate-600">${log.destination}</td>
-                    <td class="p-4 text-xs font-medium text-slate-800">${log.borrowDate}<br><span class="text-teal-600 font-semibold">${formatTime12Hr(log.borrowTime)}</span></td>
-                    <td class="p-4 text-xs text-slate-600">${log.returnDateTime || '<span class="text-amber-600 italic">Still out</span>'}</td>
-                    <td class="p-4">${statusBadge}</td>
-                    <td class="p-4 text-right">${actionBtns}</td>
-                </tr>`;
-        });
-        if (window.lucide) lucide.createIcons();
+            return `<tr class="hover:bg-slate-50/50 transition-colors">
+                <td class="p-4 font-semibold text-slate-900">${log.borrower}</td>
+                <td class="p-4 font-medium text-slate-800">${log.toolName}<br><span class="text-xs font-mono text-slate-400">ID: ${log.toolCode}</span></td>
+                <td class="p-4 text-xs text-slate-600">${log.destination}</td>
+                <td class="p-4 text-xs font-medium text-slate-800">${log.borrowDate}<br><span class="text-teal-600 font-semibold">${formatTime12Hr(log.borrowTime)}</span></td>
+                <td class="p-4 text-xs text-slate-600">${log.returnDateTime || '<span class="text-amber-600 italic">Still out</span>'}</td>
+                <td class="p-4">${statusBadge}</td>
+                <td class="p-4 text-right">${actionBtns}</td>
+            </tr>`;
+        }).join('');
     }
 
     function openBorrowToolModal() {
@@ -877,7 +939,6 @@
         document.getElementById('toolBorrowDate').value = now.toISOString().split('T')[0];
         document.getElementById('toolBorrowTime').value = now.toTimeString().slice(0, 5);
         document.getElementById('borrowToolModal')?.classList.remove('hidden');
-        if (window.lucide) lucide.createIcons();
     }
 
     function closeBorrowToolModal() { document.getElementById('borrowToolModal')?.classList.add('hidden'); }
@@ -920,9 +981,8 @@
         buildSystemNotifications();
     }
 
-  // ========================================================================
-    // 4. EXACT installation.xls PARSER + AUTO-REPAIR SCRAMBLED DATA + SEARCH FIX
-    // Maps: Col 0=ACCOUNTNAME, Col 1=DESC, Col 2=MFG, Col 3=MODEL, Col 4=SN, Col 5=INSTALL DATE
+    // ========================================================================
+    // 4. EXACT installation.xls PARSER + ZERO-LAG INVENTORY SEARCH & ACTIONS
     // ========================================================================
     function ensureSheetJSLoaded() {
         return new Promise((resolve, reject) => {
@@ -941,7 +1001,6 @@
         });
     }
 
-    // Known Model -> { desc, mfg, region } lookup to auto-heal already-scrambled rows in localStorage
     const MODEL_REPAIR_DICTIONARY = {
         's12': { name: 'Biolight Patient Monitor', dept: 'ICU / Patient Monitoring', region: 'ILOILO' },
         'q5': { name: 'Biolight Patient Monitor', dept: 'ICU / Patient Monitoring', region: 'ILOILO' },
@@ -966,9 +1025,9 @@
         'tgm12': { name: 'Yingtai Hematocrit Centrifuge', dept: 'Hematology Section', region: 'VISAYAS' },
         'mpc5v226': { name: 'Anhui Pharmacy Refrigerator', dept: 'Pharmacy / Blood Bank', region: 'VISAYAS' },
         'ihopers300': { name: 'Resvent Mechanical Ventilator', dept: 'ICU / Respiratory Care', region: 'SOCCSKSARGEN' },
-        'msl06': { name: 'Iray Flat Panel Detector', dept: 'Radiology / X-Ray', region: 'SOCCSKSARGEN' },
-        'pld6500e': { name: 'Perlove X-Ray Machine', dept: 'Radiology / X-Ray', region: 'SOCCSKSARGEN' },
-        'pld5600a': { name: 'Perlove X-Ray Machine', dept: 'Radiology / X-Ray', region: 'SOCCSKSARGEN' },
+        'msl06': { name: 'Iray Flat Panel Detector', dept: 'Radiology & Imaging', region: 'SOCCSKSARGEN' },
+        'pld6500e': { name: 'Perlove X-Ray Machine', dept: 'Radiology & Imaging', region: 'SOCCSKSARGEN' },
+        'pld5600a': { name: 'Perlove X-Ray Machine', dept: 'Radiology & Imaging', region: 'SOCCSKSARGEN' },
         'mft1000': { name: 'Fluorecare Immunoassay Analyzer', dept: 'Immunology / Serology', region: 'CEBU' },
         'ls1100': { name: 'Lansion Bio Immunoassay Analyzer', dept: 'Immunology / Serology', region: 'MAGUINDANAO' },
         'agd2260': { name: 'AGD Biomedicals Chemistry Analyzer', dept: 'Clinical Chemistry Lab', region: 'ILOILO' },
@@ -994,8 +1053,7 @@
     function looksLikeHospitalOrLabName(text) {
         const t = String(text || '').toLowerCase();
         if (!t) return false;
-        const hasEquipWord = EQUIPMENT_KEYWORDS.some(k => t.includes(k));
-        if (hasEquipWord) return false;
+        if (EQUIPMENT_KEYWORDS.some(k => t.includes(k))) return false;
         return FACILITY_KEYWORDS.some(k => t.includes(k));
     }
 
@@ -1014,7 +1072,6 @@
         return 'Clinical Laboratory';
     }
 
-    // Automatically repair any scrambled records currently in localStorage / Cloud DB
     function autoRepairScrambledInventoryData() {
         let list = window.equipmentList;
         try {
@@ -1024,8 +1081,7 @@
 
         if (!Array.isArray(list) || list.length === 0) return;
 
-        let repairedCount = 0;
-
+        let changed = false;
         list.forEach(item => {
             const rawName = String(item.name || '').trim();
             const rawModel = String(item.model || '').trim();
@@ -1033,15 +1089,12 @@
             const modelKey = rawModel.toLowerCase().replace(/[^a-z0-9]/g, '');
             const repairInfo = MODEL_REPAIR_DICTIONARY[modelKey];
 
-            // Detect if item.name is actually a Hospital/Facility name (e.g. "Dr. Ricardo Y. Ladrido Memorial Hospital", "Super Health Maasin", "Lambayong District Hospital")
             const isScrambledRow =
                 looksLikeHospitalOrLabName(rawName) ||
                 (rawFacility === 'Cebu City Medical Center' && !rawName.toLowerCase().includes('flexor') && !rawName.toLowerCase().includes('alexis') && !rawName.toLowerCase().includes('eaglenos') && !rawName.toLowerCase().includes('biolight') && repairInfo);
 
             if (isScrambledRow && rawName) {
-                // Move the hospital name from item.name -> item.facility!
                 item.facility = rawName;
-
                 if (repairInfo) {
                     item.name = repairInfo.name;
                     item.department = repairInfo.dept;
@@ -1054,25 +1107,32 @@
                     item.dept = dept;
                     item.location = item.facility;
                 }
-                repairedCount++;
+                changed = true;
             }
 
-            // Guarantee department & location are never "undefined"
+            // Ensure installDate & PULL OUT status are normalized
+            const normalizedSt = normalizeStatusLabel(item.status);
+            if (item.status !== normalizedSt) {
+                item.status = normalizedSt;
+                changed = true;
+            }
+            if (!item.installDate) {
+                item.installDate = item.lastPM || '2025-01-01';
+            }
+
             const validDept = (item.department && item.department !== 'undefined')
                 ? item.department
                 : ((item.dept && item.dept !== 'undefined') ? item.dept : inferDepartmentFromEquipmentText(item.name, item.model));
             item.department = validDept;
             item.dept = validDept;
-
-            if (!item.location || item.location.includes('undefined') || (item.location === 'CEBU - Clinical Lab' && !item.facility.toLowerCase().includes('cebu'))) {
-                item.location = item.region ? `${item.region} — ${validDept}` : `${validDept}`;
+            if (!item.location || item.location.includes('undefined')) {
+                item.location = validDept;
             }
         });
 
         window.equipmentList = list;
         try { if (typeof equipmentList !== 'undefined') equipmentList = list; } catch (_) {}
-
-        if (repairedCount > 0) {
+        if (changed) {
             localStorage.setItem('seiralab_equipment', JSON.stringify(list));
         }
     }
@@ -1095,7 +1155,7 @@
                 }
             }
         }
-        return new Date().toISOString().split('T')[0];
+        return 'N/A';
     }
 
     function computeNextPMFromInstall(installDateStr) {
@@ -1118,12 +1178,10 @@
         return clean;
     }
 
-    // Parse any worksheet from installation.xls (Col 0: ACCOUNTNAME, Col 1: DESC, Col 2: MFG, Col 3: MODEL, Col 4: SN, Col 5: INSTALL DATE, Col 6: STATUS)
     function parseWorksheetToEquipment(worksheet, sheetName, XLSX) {
         const matrix = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
         if (!matrix || matrix.length < 2) return [];
 
-        // Locate header row in first 10 rows
         let headerRowIdx = 0;
         for (let r = 0; r < Math.min(matrix.length, 10); r++) {
             const rowStr = (matrix[r] || []).slice(0, 10).map(c => String(c).trim().toLowerCase()).join(' | ');
@@ -1150,8 +1208,6 @@
             return defaultIdx;
         };
 
-        // Exact mapping for installation.xls:
-        // Col 0 = ACCOUNTNAME, Col 1 = DESC, Col 2 = MFG, Col 3 = MODEL, Col 4 = SN, Col 5 = INSTALL DATE, Col 6 = STATUS
         const colAccount = findExactOrPartial(['accountname', 'hospital', 'facility', 'client'], ['account', 'hospital', 'facility'], 0);
         const colDesc    = findExactOrPartial(['desc', 'description', 'producttype', 'equipmentname', 'equipment'], ['desc', 'producttype', 'equipment'], 1);
         const colMfg     = findExactOrPartial(['mfg', 'brand', 'manufacturer', 'make'], ['mfg', 'brand', 'maker'], 2);
@@ -1166,7 +1222,6 @@
 
         for (let r = headerRowIdx + 1; r < matrix.length; r++) {
             const row = matrix[r] || [];
-            // Only inspect first 8 columns (ignores the 250 empty columns in Sheet1)
             const firstCols = row.slice(0, 8).map(c => String(c ?? '').trim());
             if (firstCols.filter(Boolean).length < 2) continue;
 
@@ -1189,8 +1244,6 @@
 
             if (!accountName && !desc && !model) continue;
 
-            // Combine Manufacturer (MFG) + Description (DESC) for a crystal-clear Equipment Name
-            // e.g., MFG="Biolight" + DESC="Patient Monitor" -> "Biolight Patient Monitor"
             const cleanMfg = (mfg && mfg.toUpperCase() !== 'NAN' && mfg.toUpperCase() !== 'N/A') ? mfg : '';
             const cleanDesc = (desc && desc.toUpperCase() !== 'NAN' && desc.toUpperCase() !== 'N/A') ? desc : '';
             const cleanModel = (model && model.toUpperCase() !== 'NAN' && model.toUpperCase() !== 'N/A') ? model : (cleanMfg || 'Standard');
@@ -1205,25 +1258,17 @@
             }
 
             const department = inferDepartmentFromEquipmentText(equipmentName, cleanModel);
-            const lastPM = parseFlexibleInstallDate(rawDate);
+            const installedDate = parseFlexibleInstallDate(rawDate);
+            const lastPM = installedDate !== 'N/A' ? installedDate : new Date().toISOString().split('T')[0];
             const nextDue = computeNextPMFromInstall(lastPM);
-
-            let status = 'Operational';
-            const stLow = rawStatus.toLowerCase();
-            if (stLow.includes('defective') || stLow.includes('not functional') || stLow.includes('repair')) {
-                status = 'Under Repair';
-            } else if (stLow.includes('pullout') || stLow.includes('decom')) {
-                status = 'Decommissioned';
-            }
+            const status = normalizeStatusLabel(rawStatus);
 
             const hasValidSn = rawSn && rawSn.toUpperCase() !== 'N/A' && rawSn.toUpperCase() !== 'NAN' && rawSn !== '-';
             const serial = hasValidSn
                 ? rawSn
                 : `SLI-${cleanModel.replace(/[^A-Za-z0-9]/g, '') || 'EQ'}-${String(r).padStart(3, '0')}`;
 
-            const locationText = regionLabel
-                ? `${regionLabel} — ${department}`
-                : `${department}`;
+            const locationText = regionLabel ? `${regionLabel} — ${department}` : department;
 
             extracted.push({
                 id: Date.now() + r + Math.floor(Math.random() * 100000),
@@ -1239,6 +1284,7 @@
                 location: locationText,
                 risk: 'High',
                 status: status,
+                installDate: installedDate,
                 lastPM: lastPM,
                 nextDue: nextDue,
                 interval: 'Semi-Annual (6 Mos)'
@@ -1257,8 +1303,6 @@
             const arrayBuffer = await file.arrayBuffer();
             const workbook = XLSX.read(arrayBuffer, { type: 'array', cellDates: true });
 
-            // Parse regional sheets FIRST so regional tags (DAVAO, SOCCSKSARGEN, MAGUINDANAO, ILOILO, CEBU, etc.) are captured,
-            // then parse Sheet1 to add any extra hospitals (like Super Health, Dr. Ladrido, Sultan Kudarat, Lambayong) not in regional tabs!
             const regionalSheets = workbook.SheetNames.filter(n => !/^sheet\d+$/i.test(n.trim()));
             const genericSheets = workbook.SheetNames.filter(n => /^sheet\d+$/i.test(n.trim()));
             const orderedSheets = [...regionalSheets, ...genericSheets];
@@ -1286,12 +1330,10 @@
                             dedupMap.get(key).location = item.location;
                         }
                     } else {
-                        // For items with N/A serial numbers, avoid duplicating the exact same row between Regional tab & Sheet1
-                        const compBase = `comp:${facKey}|${modKey}|${descKey}|${item.lastPM}`;
+                        const compBase = `comp:${facKey}|${modKey}|${descKey}|${item.installDate}`;
                         if (!dedupMap.has(compBase)) {
                             dedupMap.set(compBase, item);
                         } else {
-                            // If it's a second unit in the same sheet (e.g. 6 Olympus CX23 microscopes), keep it with a counter if from same sheet
                             noSnCounter++;
                             dedupMap.set(`${compBase}#${noSnCounter}`, item);
                         }
@@ -1307,32 +1349,9 @@
                 return;
             }
 
-            // Replace scrambled inventory and merge cleanly with any manually added items
-            autoRepairScrambledInventoryData();
-            const existingList = Array.isArray(window.equipmentList) ? window.equipmentList : [];
-
-            importedList.forEach(incoming => {
-                const inSn = normalizeSnForDedup(incoming.serial);
-                const matchIdx = existingList.findIndex(ex => {
-                    const exSn = normalizeSnForDedup(ex.serial);
-                    if (inSn && exSn && inSn === exSn) return true;
-                    return ex.facility.toLowerCase() === incoming.facility.toLowerCase() &&
-                           ex.model.toLowerCase() === incoming.model.toLowerCase() &&
-                           ex.name.toLowerCase() === incoming.name.toLowerCase() &&
-                           ex.lastPM === incoming.lastPM;
-                });
-
-                if (matchIdx !== -1) {
-                    const keepId = existingList[matchIdx].id;
-                    existingList[matchIdx] = { ...existingList[matchIdx], ...incoming, id: keepId };
-                } else {
-                    existingList.unshift(incoming);
-                }
-            });
-
-            window.equipmentList = existingList;
-            try { if (typeof equipmentList !== 'undefined') equipmentList = existingList; } catch (_) {}
-            localStorage.setItem('seiralab_equipment', JSON.stringify(existingList));
+            window.equipmentList = importedList;
+            try { if (typeof equipmentList !== 'undefined') equipmentList = importedList; } catch (_) {}
+            localStorage.setItem('seiralab_equipment', JSON.stringify(importedList));
 
             rebuildHospitalAndDeptFilters();
             renderFullSearchableInventoryTable();
@@ -1340,9 +1359,9 @@
             if (typeof renderScheduleCards === 'function') renderScheduleCards();
             buildSystemNotifications();
 
-            const siteCount = new Set(existingList.map(e => e.facility).filter(Boolean)).size;
+            const siteCount = new Set(importedList.map(e => e.facility).filter(Boolean)).size;
             if (typeof showNotificationToast === 'function') {
-                showNotificationToast(`Imported & verified ${importedList.length} machines across ${siteCount} Hospitals/Labs!`);
+                showNotificationToast(`Imported ${importedList.length} machines across ${siteCount} Hospitals/Labs!`);
             }
             if (typeof pushToGitHub === 'function') {
                 await pushToGitHub(`Import installation.xls: ${importedList.length} machines across ${siteCount} facilities`);
@@ -1354,24 +1373,17 @@
         }
     }
 
-    // ========================================================================
-    // OVERRIDE INVENTORY SEARCH, FILTERS & TABLE RENDERING SO 100% OF ITEMS ARE SEARCHABLE
-    // ========================================================================
     function rebuildHospitalAndDeptFilters() {
         const list = window.equipmentList || [];
+        enforceInstalledDateAndPullOutUI();
 
         const facilitySelect = document.getElementById('facilityFilter');
         if (facilitySelect) {
             const prevFac = facilitySelect.value;
             const facilities = Array.from(new Set(list.map(i => String(i.facility || '').trim()).filter(Boolean)))
                 .sort((a, b) => a.localeCompare(b));
-            facilitySelect.innerHTML = `<option value="">All Hospitals / Labs (${facilities.length} Sites)</option>`;
-            facilities.forEach(fac => {
-                const opt = document.createElement('option');
-                opt.value = fac;
-                opt.textContent = fac;
-                facilitySelect.appendChild(opt);
-            });
+            facilitySelect.innerHTML = `<option value="">All Hospitals / Labs (${facilities.length} Sites)</option>` +
+                facilities.map(f => `<option value="${f.replace(/"/g, '&quot;')}">${f}</option>`).join('');
             if (facilities.includes(prevFac)) facilitySelect.value = prevFac;
         }
 
@@ -1380,39 +1392,29 @@
             const prevDept = deptSelect.value;
             const depts = Array.from(new Set(list.map(i => String(i.department || i.dept || '').trim()).filter(Boolean)))
                 .sort((a, b) => a.localeCompare(b));
-            deptSelect.innerHTML = `<option value="">All Departments</option>`;
-            depts.forEach(d => {
-                const opt = document.createElement('option');
-                opt.value = d;
-                opt.textContent = d;
-                deptSelect.appendChild(opt);
-            });
+            deptSelect.innerHTML = `<option value="">All Departments</option>` +
+                depts.map(d => `<option value="${d.replace(/"/g, '&quot;')}">${d}</option>`).join('');
             if (depts.includes(prevDept)) deptSelect.value = prevDept;
         }
     }
 
+    // Fast, Zero-Lag Inventory Table Renderer (Uses .map().join('') + Inline SVGs + INSTALLED DATE + PULL OUT)
     function renderFullSearchableInventoryTable() {
         const invSection = document.getElementById('inventory');
         if (!invSection) return;
         const tbody = document.getElementById('inventoryTableBody') || invSection.querySelector('tbody');
         if (!tbody) return;
 
-        // Always read the latest synchronized equipment list (including newly added items from "+ Add Equipment")
-        let list = window.equipmentList || [];
-        try {
-            const stored = JSON.parse(localStorage.getItem('seiralab_equipment') || 'null');
-            if (Array.isArray(stored) && stored.length > list.length) {
-                list = stored;
-                window.equipmentList = stored;
-            }
-        } catch (_) {}
+        enforceInstalledDateAndPullOutUI();
 
+        const list = window.equipmentList || [];
         const searchInput = document.getElementById('inventorySearch') ||
                             document.getElementById('searchInput') ||
                             invSection.querySelector('input[type="text"], input[type="search"]');
-        const facilitySelect = document.getElementById('facilityFilter') || invSection.querySelectorAll('select')[0];
-        const deptSelect = document.getElementById('deptFilter') || document.getElementById('departmentFilter') || invSection.querySelectorAll('select')[1];
-        const statusSelect = document.getElementById('statusFilter') || invSection.querySelectorAll('select')[2];
+        const selects = invSection.querySelectorAll('select');
+        const facilitySelect = document.getElementById('facilityFilter') || selects[0];
+        const deptSelect = document.getElementById('deptFilter') || document.getElementById('departmentFilter') || selects[1];
+        const statusSelect = document.getElementById('statusFilter') || selects[2];
 
         const query = (searchInput?.value || '').trim().toLowerCase();
         const facFilter = (facilitySelect?.value || '').trim().toLowerCase();
@@ -1420,87 +1422,176 @@
         const statusFilter = (statusSelect?.value || '').trim().toLowerCase();
 
         const filtered = list.filter(item => {
-            const name = String(item.name || '').toLowerCase();
-            const model = String(item.model || '').toLowerCase();
-            const serial = String(item.serial || '').toLowerCase();
-            const facility = String(item.facility || '').toLowerCase();
-            const dept = String(item.department || item.dept || '').toLowerCase();
-            const loc = String(item.location || '').toLowerCase();
-            const mfg = String(item.mfg || '').toLowerCase();
-            const status = String(item.status || 'Operational').toLowerCase();
+            const st = normalizeStatusLabel(item.status).toLowerCase();
+            if (facFilter && String(item.facility || '').toLowerCase() !== facFilter) return false;
+            if (deptFilter && String(item.department || item.dept || '').toLowerCase() !== deptFilter) return false;
+            if (statusFilter && st !== statusFilter) return false;
 
-            // Search matches Name, Model, Serial, Hospital/Facility, Department, Location, or Manufacturer
-            const matchesSearch = !query ||
-                name.includes(query) ||
-                model.includes(query) ||
-                serial.includes(query) ||
-                facility.includes(query) ||
-                dept.includes(query) ||
-                loc.includes(query) ||
-                mfg.includes(query);
-
-            const matchesFac = !facFilter || facility === facFilter;
-            const matchesDept = !deptFilter || dept === deptFilter || loc.includes(deptFilter);
-            const matchesStatus = !statusFilter || status === statusFilter;
-
-            return matchesSearch && matchesFac && matchesDept && matchesStatus;
+            if (!query) return true;
+            return String(item.name || '').toLowerCase().includes(query) ||
+                   String(item.model || '').toLowerCase().includes(query) ||
+                   String(item.serial || '').toLowerCase().includes(query) ||
+                   String(item.facility || '').toLowerCase().includes(query) ||
+                   String(item.department || item.dept || '').toLowerCase().includes(query) ||
+                   String(item.location || '').toLowerCase().includes(query);
         });
 
-        tbody.innerHTML = '';
         if (filtered.length === 0) {
             tbody.innerHTML = `<tr><td colspan="8" class="py-10 text-center text-slate-400 text-sm">No equipment matches your search filter.</td></tr>`;
             return;
         }
 
-        // Show up to 250 matching items so searching any of the 648+ rows always displays immediately
-        filtered.slice(0, 250).forEach(item => {
+        // Render up to 100 rows instantly via single string batch (zero DOM thrashing)
+        const displayLimit = query ? 150 : 80;
+        const rowsHTML = filtered.slice(0, displayLimit).map(item => {
             const deptName = item.department || item.dept || 'Clinical Laboratory';
             const locName = item.location || deptName;
-            const status = item.status || 'Operational';
+            const status = normalizeStatusLabel(item.status);
+            const installedDate = item.installDate || item.lastPM || 'N/A';
 
-            const statusBadge = status === 'Operational'
-                ? `<span class="px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-xs font-semibold inline-flex items-center space-x-1.5"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span><span>Operational</span></span>`
-                : status === 'Under Repair'
-                ? `<span class="px-2.5 py-1 bg-rose-50 text-rose-700 border border-rose-200 rounded-full text-xs font-semibold inline-flex items-center space-x-1.5"><span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span><span>Under Repair</span></span>`
-                : `<span class="px-2.5 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-full text-xs font-semibold inline-flex items-center space-x-1.5"><span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span><span>${status}</span></span>`;
+            let statusBadge = '';
+            if (status === 'Operational') {
+                statusBadge = `<span class="px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-xs font-semibold inline-flex items-center space-x-1.5"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span><span>Operational</span></span>`;
+            } else if (status === 'PULL OUT') {
+                statusBadge = `<span class="px-2.5 py-1 bg-slate-200 text-slate-800 border border-slate-300 rounded-full text-xs font-bold inline-flex items-center space-x-1.5"><span class="w-1.5 h-1.5 rounded-full bg-slate-600"></span><span>PULL OUT</span></span>`;
+            } else if (status === 'Under Repair') {
+                statusBadge = `<span class="px-2.5 py-1 bg-rose-50 text-rose-700 border border-rose-200 rounded-full text-xs font-semibold inline-flex items-center space-x-1.5"><span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span><span>Under Repair</span></span>`;
+            } else {
+                statusBadge = `<span class="px-2.5 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-full text-xs font-semibold inline-flex items-center space-x-1.5"><span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span><span>${status}</span></span>`;
+            }
 
             const safeId = String(item.id).replace(/'/g, "\\'");
 
-            tbody.innerHTML += `
-                <tr class="hover:bg-slate-50/70 transition-colors border-b border-slate-100 last:border-none">
-                    <td class="p-4">
-                        <div class="font-bold text-slate-900 text-sm">${item.name}</div>
-                        <div class="text-xs text-slate-500">Model: ${item.model || 'Standard'}</div>
-                    </td>
-                    <td class="p-4 font-mono text-xs font-semibold text-slate-700">${item.serial}</td>
-                    <td class="p-4 font-semibold text-slate-800 text-xs sm:text-sm">${item.facility}</td>
-                    <td class="p-4">
-                        <div class="text-xs font-semibold text-slate-700">${deptName}</div>
-                        <div class="text-[11px] text-slate-400">${locName}</div>
-                    </td>
-                    <td class="p-4 hidden">${item.risk || 'High'}</td>
-                    <td class="p-4">${statusBadge}</td>
-                    <td class="p-4 font-mono text-xs font-semibold text-slate-700">${item.nextDue || '-'}</td>
-                    <td class="p-4 text-right">
-                        <div class="inline-flex items-center justify-end space-x-1.5">
-                            <button type="button" onclick="typeof openPMModal === 'function' ? openPMModal('${safeId}') : null" class="p-1.5 bg-teal-50 hover:bg-teal-100 text-teal-700 rounded-lg transition-colors cursor-pointer" title="Log PM / Service">
-                                <i data-lucide="clipboard-check" class="w-4 h-4"></i>
-                            </button>
-                            <button type="button" onclick="typeof editEquipment === 'function' ? editEquipment('${safeId}') : null" class="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors cursor-pointer" title="Edit Equipment">
-                                <i data-lucide="edit-2" class="w-4 h-4"></i>
-                            </button>
-                            <button type="button" onclick="deleteInventoryAsset('${safeId}')" class="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg transition-colors cursor-pointer" title="Delete Equipment">
-                                <i data-lucide="trash-2" class="w-4 h-4"></i>
-                            </button>
-                        </div>
-                    </td>
-                </tr>
-            `;
-        });
+            return `<tr class="hover:bg-slate-50/70 transition-colors border-b border-slate-100 last:border-none">
+                <td class="p-4">
+                    <div class="font-bold text-slate-900 text-sm">${item.name}</div>
+                    <div class="text-xs text-slate-500">Model: ${item.model || 'Standard'}</div>
+                </td>
+                <td class="p-4 font-mono text-xs font-semibold text-slate-700">${item.serial}</td>
+                <td class="p-4 font-semibold text-slate-800 text-xs sm:text-sm">${item.facility}</td>
+                <td class="p-4">
+                    <div class="text-xs font-semibold text-slate-700">${deptName}</div>
+                    <div class="text-[11px] text-slate-400">${locName}</div>
+                </td>
+                <td class="p-4 hidden">${item.risk || 'High'}</td>
+                <td class="p-4">${statusBadge}</td>
+                <td class="p-4 font-mono text-xs font-semibold text-slate-700">${installedDate}</td>
+                <td class="p-4 text-right">
+                    <div class="inline-flex items-center justify-end space-x-1.5">
+                        <button type="button" onclick="openInventoryServiceReport('${safeId}')" class="p-1.5 bg-teal-50 hover:bg-teal-100 text-teal-700 rounded-lg transition-colors cursor-pointer" title="Create Service Report for this Machine">
+                            ${SVG_CLIPBOARD}
+                        </button>
+                        <button type="button" onclick="openInventoryEditModal('${safeId}')" class="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors cursor-pointer" title="Edit Equipment Details">
+                            ${SVG_EDIT}
+                        </button>
+                        <button type="button" onclick="deleteInventoryAsset('${safeId}')" class="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg transition-colors cursor-pointer" title="Delete Equipment">
+                            ${SVG_TRASH}
+                        </button>
+                    </div>
+                </td>
+            </tr>`;
+        }).join('');
 
-        if (window.lucide) lucide.createIcons();
+        tbody.innerHTML = rowsHTML;
     }
 
+    // Action Button 1 (Green Clipboard Icon): Open Service Report Pre-Filled With This Machine!
+    function openInventoryServiceReport(eqId) {
+        if (isVisitorUser()) {
+            if (typeof showNotificationToast === 'function') showNotificationToast('Visitors have view-only access.', true);
+            return;
+        }
+        const item = (window.equipmentList || []).find(e => String(e.id) === String(eqId));
+        openNewServiceReportRegistration();
+        if (!item) return;
+
+        document.getElementById('srCompany').value = item.facility || '';
+        document.getElementById('srDepartment').value = item.department || item.dept || '';
+        document.getElementById('srAddress').value = item.location || item.facility || '';
+        document.getElementById('srEquipmentName').value = item.name || '';
+        document.getElementById('srModel').value = item.model || '';
+        document.getElementById('srSerial').value = item.serial || '';
+        document.getElementById('srEqArea1').value = item.facility || '';
+        document.getElementById('srEqArea2').value = `Installed: ${item.installDate || item.lastPM || 'N/A'} (${normalizeStatusLabel(item.status)})`;
+    }
+
+    // Action Button 2 (Pencil Edit Icon): Open Dedicated Edit Asset Modal
+    function openInventoryEditModal(eqId) {
+        if (isVisitorUser()) {
+            if (typeof showNotificationToast === 'function') showNotificationToast('Visitors have view-only access.', true);
+            return;
+        }
+        ensureFeatureModalsExist();
+        const item = (window.equipmentList || []).find(e => String(e.id) === String(eqId));
+        if (!item) return;
+
+        document.getElementById('editAssetTargetId').value = item.id;
+        document.getElementById('editAssetName').value = item.name || '';
+        document.getElementById('editAssetModel').value = item.model || '';
+        document.getElementById('editAssetSerial').value = item.serial || '';
+        const instDate = item.installDate && item.installDate !== 'N/A' ? item.installDate : (item.lastPM || new Date().toISOString().split('T')[0]);
+        document.getElementById('editAssetInstalledDate').value = instDate;
+        document.getElementById('editAssetFacility').value = item.facility || '';
+        document.getElementById('editAssetDept').value = item.department || item.dept || 'Clinical Laboratory';
+        document.getElementById('editAssetStatus').value = normalizeStatusLabel(item.status);
+
+        document.getElementById('seiralabEditEquipmentModal')?.classList.remove('hidden');
+    }
+
+    function closeInventoryEditModal() {
+        document.getElementById('seiralabEditEquipmentModal')?.classList.add('hidden');
+    }
+
+    async function saveInventoryEditedAsset(event) {
+        event.preventDefault();
+        if (isVisitorUser()) return;
+
+        const targetId = document.getElementById('editAssetTargetId').value;
+        const list = window.equipmentList || [];
+        const idx = list.findIndex(e => String(e.id) === String(targetId));
+        if (idx === -1) return;
+
+        const updatedName = document.getElementById('editAssetName').value.trim();
+        const updatedModel = document.getElementById('editAssetModel').value.trim();
+        const updatedSerial = document.getElementById('editAssetSerial').value.trim();
+        const updatedInstallDate = document.getElementById('editAssetInstalledDate').value;
+        const updatedFacility = document.getElementById('editAssetFacility').value.trim();
+        const updatedDept = document.getElementById('editAssetDept').value.trim();
+        const updatedStatus = normalizeStatusLabel(document.getElementById('editAssetStatus').value);
+
+        list[idx] = {
+            ...list[idx],
+            name: updatedName,
+            model: updatedModel,
+            serial: updatedSerial,
+            installDate: updatedInstallDate,
+            lastPM: updatedInstallDate,
+            nextDue: computeNextPMFromInstall(updatedInstallDate),
+            facility: updatedFacility,
+            department: updatedDept,
+            dept: updatedDept,
+            status: updatedStatus
+        };
+
+        window.equipmentList = list;
+        try { if (typeof equipmentList !== 'undefined') equipmentList = list; } catch (_) {}
+        localStorage.setItem('seiralab_equipment', JSON.stringify(list));
+
+        closeInventoryEditModal();
+        rebuildHospitalAndDeptFilters();
+        renderFullSearchableInventoryTable();
+        if (typeof renderDashboard === 'function') renderDashboard();
+        if (typeof renderScheduleCards === 'function') renderScheduleCards();
+
+        if (typeof showNotificationToast === 'function') {
+            showNotificationToast(`Updated ${updatedName} (${updatedModel})!`);
+        }
+        if (typeof pushToGitHub === 'function') {
+            await pushToGitHub(`Edit Equipment: ${updatedName} (${updatedSerial}) — Status: ${updatedStatus}`);
+        }
+    }
+
+    // Action Button 3 (Trash Delete Icon)
     async function deleteInventoryAsset(eqId) {
         if (!isHeadOrAdminUser()) {
             if (typeof showNotificationToast === 'function') showNotificationToast('Only Head Technical & MasterAdmin can delete equipment.', true);
@@ -1530,17 +1621,23 @@
         const searchInput = document.getElementById('inventorySearch') ||
                             document.getElementById('searchInput') ||
                             invSection.querySelector('input[type="text"], input[type="search"]');
-        if (searchInput && !searchInput.dataset.boundEnhancedSearch) {
-            searchInput.dataset.boundEnhancedSearch = 'true';
+        if (searchInput && !searchInput.dataset.boundDebouncedSearch) {
+            searchInput.dataset.boundDebouncedSearch = 'true';
             searchInput.placeholder = 'Search by equipment, model, serial, or hospital...';
-            searchInput.oninput = renderFullSearchableInventoryTable;
-            searchInput.onkeyup = renderFullSearchableInventoryTable;
+            // Remove inline onkeyup from HTML if present so it doesn't double-fire app.js
+            searchInput.removeAttribute('onkeyup');
+            searchInput.removeAttribute('oninput');
+            searchInput.addEventListener('input', () => {
+                clearTimeout(searchDebounceTimer);
+                searchDebounceTimer = setTimeout(renderFullSearchableInventoryTable, 120);
+            });
         }
 
         invSection.querySelectorAll('select').forEach(sel => {
             if (!sel.dataset.boundEnhancedFilter) {
                 sel.dataset.boundEnhancedFilter = 'true';
-                sel.onchange = renderFullSearchableInventoryTable;
+                sel.removeAttribute('onchange');
+                sel.addEventListener('change', renderFullSearchableInventoryTable);
             }
         });
     }
@@ -1566,9 +1663,8 @@
             importBtn.id = 'btnInventoryImportAsset';
             importBtn.onclick = triggerAssetImportPicker;
             importBtn.className = 'inline-flex items-center justify-center px-3.5 py-2 bg-white border border-slate-300 hover:border-teal-600 text-slate-700 rounded-lg font-medium text-xs sm:text-sm shadow-xs transition-all space-x-1.5 cursor-pointer';
-            importBtn.innerHTML = `<i data-lucide="file-spreadsheet" class="w-4 h-4 text-teal-600"></i><span>Import Asset Data (.xlsx / .xls / .csv)</span>`;
+            importBtn.innerHTML = `<span>Import Asset Data (.xlsx / .xls / .csv)</span>`;
             parentDiv.insertBefore(importBtn, addEqBtn);
-            if (window.lucide) lucide.createIcons();
         }
 
         if (document.body && !document.getElementById('seiralabAssetFileInput')) {
@@ -1599,20 +1695,6 @@
             document.head.appendChild(style);
         }
     }
-
-    // Override global renderInventoryTable & populateFacilityFilter so app.js always uses the fixed version
-    window.renderInventoryTable = renderFullSearchableInventoryTable;
-    window.populateFacilityFilter = rebuildHospitalAndDeptFilters;
-    window.deleteInventoryAsset = deleteInventoryAsset;
-    window.autoRepairScrambledInventoryData = autoRepairScrambledInventoryData;
-
-    // Also run autoRepair & re-render immediately when this block initializes
-    setTimeout(() => {
-        autoRepairScrambledInventoryData();
-        rebuildHospitalAndDeptFilters();
-        bindInventorySearchAndFilterListeners();
-        renderFullSearchableInventoryTable();
-    }, 150);
 
     // ========================================================================
     // 6. OFFICIAL SERVICE REPORT SERIES ENGINE (05535+) & EDIT WORKFLOW
@@ -1706,7 +1788,6 @@
         document.getElementById('srBtnSaveLabel').innerText = 'Register Service Report';
         document.getElementById('srBtnUnlockEdit')?.classList.add('hidden');
         document.getElementById('seiralabServiceReportModal')?.classList.remove('hidden');
-        if (window.lucide) lucide.createIcons();
     }
 
     function openServiceReportForViewing(logId) {
@@ -1732,7 +1813,6 @@
         } else if (unlockBtn) { unlockBtn.classList.add('hidden'); }
 
         document.getElementById('seiralabServiceReportModal')?.classList.remove('hidden');
-        if (window.lucide) lucide.createIcons();
     }
 
     function requestEditServiceReport(logId) {
@@ -1752,7 +1832,6 @@
             document.getElementById('srBtnSaveLabel').innerText = 'Save Edited Report';
             document.getElementById('srBtnUnlockEdit')?.classList.add('hidden');
             document.getElementById('seiralabServiceReportModal')?.classList.remove('hidden');
-            if (window.lucide) lucide.createIcons();
             return;
         }
 
@@ -1764,7 +1843,6 @@
         document.getElementById('srEditRequestTargetLabel').innerText = `SR #${log.reportNo} — ${log.eqName}`;
         document.getElementById('srReqReasonInput').value = '';
         document.getElementById('srEditRequestModal')?.classList.remove('hidden');
-        if (window.lucide) lucide.createIcons();
     }
 
     function closeEditRequestModal() { document.getElementById('srEditRequestModal')?.classList.add('hidden'); }
@@ -1814,6 +1892,8 @@
             equipmentName: document.getElementById('srEquipmentName')?.value.trim() || 'Medical Equipment',
             model: document.getElementById('srModel')?.value.trim() || '',
             serial: document.getElementById('srSerial')?.value.trim() || '',
+            eqArea1: document.getElementById('srEqArea1')?.value.trim() || '',
+            eqArea2: document.getElementById('srEqArea2')?.value.trim() || '',
             findings: document.getElementById('srFindings')?.value.trim() || '',
             actionTaken: document.getElementById('srActionTaken')?.value.trim() || '',
             serviceAmount: document.getElementById('srServiceAmount')?.value.trim() || '',
@@ -1833,7 +1913,7 @@
             facility: srDetails.company || 'Client Facility',
             type: srDetails.complaints || 'Service & Maintenance Report',
             tech: srDetails.technicianName || 'Biomedical Engineer',
-            notes: [srDetails.findings, srDetails.actionTaken, srDetails.remarks].filter(Boolean).join(' — '),
+            notes: [srDetails.findings, srDetails.actionTaken, srDetails.remarks].filter(Boolean).join(' — ') || 'Service report logged.',
             srDetails,
             editRequestStatus: 'none'
         };
@@ -1893,15 +1973,14 @@
         }
 
         const canApprove = isHeadOrAdminUser();
-        let rowsHTML = '';
-        pendingLogs.forEach(log => {
+        const rowsHTML = pendingLogs.map(log => {
             const safeId = String(log.id).replace(/'/g, "\\'");
             const controls = canApprove
                 ? `<div class="flex items-center space-x-2 shrink-0"><button type="button" onclick="resolveServiceReportEditRequest('${safeId}', 'accept')" class="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-bold cursor-pointer">Accept</button><button type="button" onclick="resolveServiceReportEditRequest('${safeId}', 'decline')" class="px-3 py-1.5 bg-rose-600 text-white rounded-lg text-xs font-bold cursor-pointer">Decline</button></div>`
                 : `<span class="px-2.5 py-1 bg-amber-200/80 text-amber-900 rounded-full text-[11px] font-bold">Awaiting Head / Admin Approval</span>`;
 
-            rowsHTML += `<div class="bg-white border border-amber-300 rounded-xl p-3 flex items-center justify-between gap-3"><div><span class="px-2 py-0.5 bg-amber-100 text-amber-900 font-mono text-xs font-bold rounded">SR #${log.reportNo || '05535'}</span><span class="text-xs font-bold text-slate-900 ml-2">${log.eqName}</span><p class="text-xs text-slate-600 mt-1"><strong>${log.editRequestedBy || 'Technical'}:</strong> "${log.editRequestReason || 'Requesting edit'}"</p></div>${controls}</div>`;
-        });
+            return `<div class="bg-white border border-amber-300 rounded-xl p-3 flex items-center justify-between gap-3"><div><span class="px-2 py-0.5 bg-amber-100 text-amber-900 font-mono text-xs font-bold rounded">SR #${log.reportNo || '05535'}</span><span class="text-xs font-bold text-slate-900 ml-2">${log.eqName}</span><p class="text-xs text-slate-600 mt-1"><strong>${log.editRequestedBy || 'Technical'}:</strong> "${log.editRequestReason || 'Requesting edit'}"</p></div>${controls}</div>`;
+        }).join('');
 
         banner.className = 'mb-4 bg-amber-50 border border-amber-300 rounded-2xl p-4 space-y-2';
         banner.innerHTML = `<div class="text-xs font-bold uppercase tracking-wider text-amber-900">Pending Service Report Edit Requests (${pendingLogs.length})</div><div class="space-y-2">${rowsHTML}</div>`;
@@ -1922,7 +2001,7 @@
                 blankBtn.id = 'btnOpenBlankServiceReport';
                 blankBtn.onclick = openNewServiceReportRegistration;
                 blankBtn.className = 'inline-flex items-center justify-center px-3.5 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg font-medium text-xs sm:text-sm shadow-xs transition-all space-x-1.5 whitespace-nowrap cursor-pointer mr-2';
-                blankBtn.innerHTML = `<i data-lucide="file-plus-2" class="w-4 h-4"></i><span>Service Report Form</span>`;
+                blankBtn.innerHTML = `<span>+ Service Report Form</span>`;
                 headerBtnContainer.insertBefore(blankBtn, headerBtnContainer.firstChild);
             }
         }
@@ -1938,7 +2017,6 @@
             const actionCell = tr.querySelector('td:last-child');
             if (!actionCell) return;
 
-            // Skip if already upgraded for current role state
             const existingRoleTag = actionCell.getAttribute('data-upgraded-role');
             const currentRoleKey = `${getActiveRole()}-${(window.historyLogs?.[idx]?.editRequestStatus || 'none')}`;
             if (existingRoleTag === currentRoleKey && !actionCell.innerText.includes('Certificate')) return;
@@ -1970,7 +2048,7 @@
                     if (reqStatus === 'pending') {
                         editBtns += `<button type="button" onclick="resolveServiceReportEditRequest('${safeId}', 'accept')" class="px-2 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-semibold cursor-pointer">Accept</button>`;
                     }
-                    editBtns += `<button type="button" onclick="requestEditServiceReport('${safeId}')" class="px-2.5 py-1.5 bg-amber-50 text-amber-800 border border-amber-200 rounded-lg font-semibold text-xs inline-flex items-center space-x-1 cursor-pointer"><i data-lucide="edit-3" class="w-3.5 h-3.5"></i><span>Edit</span></button>`;
+                    editBtns += `<button type="button" onclick="requestEditServiceReport('${safeId}')" class="px-2.5 py-1.5 bg-amber-50 text-amber-800 border border-amber-200 rounded-lg font-semibold text-xs inline-flex items-center space-x-1 cursor-pointer"><span>Edit</span></button>`;
                 } else {
                     if (reqStatus === 'pending') editBtns = `<button type="button" onclick="requestEditServiceReport('${safeId}')" class="px-2.5 py-1.5 bg-amber-100 text-amber-900 rounded-lg text-xs font-semibold cursor-pointer">Requested</button>`;
                     else if (reqStatus === 'approved') editBtns = `<button type="button" onclick="requestEditServiceReport('${safeId}')" class="px-2.5 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-semibold cursor-pointer">Edit (Approved)</button>`;
@@ -1978,23 +2056,32 @@
                 }
             }
 
-            const deleteBtn = isSup ? `<button type="button" onclick="deleteServiceReportLog('${safeId}')" class="p-1.5 bg-rose-50 text-rose-600 border border-rose-200 rounded-lg cursor-pointer"><i data-lucide="trash-2" class="w-4 h-4"></i></button>` : '';
+            const deleteBtn = isSup ? `<button type="button" onclick="deleteServiceReportLog('${safeId}')" class="p-1.5 bg-rose-50 text-rose-600 border border-rose-200 rounded-lg cursor-pointer">${SVG_TRASH}</button>` : '';
 
             actionCell.setAttribute('data-upgraded-role', currentRoleKey);
             actionCell.innerHTML = `
                 <div class="inline-flex items-center justify-end space-x-1.5">
                     ${editBtns}
                     <button type="button" onclick="openServiceReportForViewing('${safeId}')" class="px-3 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-700 border border-teal-200 rounded-lg font-semibold text-xs inline-flex items-center space-x-1.5 cursor-pointer">
-                        <i data-lucide="eye" class="w-3.5 h-3.5"></i>
+                        ${SVG_EYE}
                         <span>Service Report</span>
                     </button>
                     ${deleteBtn}
                 </div>`;
         });
-        if (window.lucide) lucide.createIcons();
     }
 
     // Export all handlers globally
+    window.renderInventoryTable = renderFullSearchableInventoryTable;
+    window.populateFacilityFilter = rebuildHospitalAndDeptFilters;
+    window.openInventoryServiceReport = openInventoryServiceReport;
+    window.openInventoryEditModal = openInventoryEditModal;
+    window.closeInventoryEditModal = closeInventoryEditModal;
+    window.saveInventoryEditedAsset = saveInventoryEditedAsset;
+    window.deleteInventoryAsset = deleteInventoryAsset;
+    window.editEquipment = openInventoryEditModal;
+    window.openPMModal = openInventoryServiceReport;
+
     window.openNotificationModal = openNotificationModal;
     window.closeNotificationModal = closeNotificationModal;
     window.buildSystemNotifications = buildSystemNotifications;
@@ -2037,7 +2124,10 @@
     function bootAllSeiralabFeatures() {
         ensureFeatureModalsExist();
         removeRiskFromAllUI();
+        autoRepairScrambledInventoryData();
         relocateImportAssetButtonAndFixInput();
+        rebuildHospitalAndDeptFilters();
+        renderFullSearchableInventoryTable();
         upgradeCalibrationToolbarUI();
         renderCalibrationTable();
         renderToolLogsTable();
@@ -2051,8 +2141,9 @@
         bootAllSeiralabFeatures();
     }
 
-    // Continuous self-healing watchdog (runs every 800ms) so app.js can NEVER wipe out the buttons
+    // Lightweight watchdog every 1.2s (only touches DOM if an element is actually missing)
     setInterval(() => {
+        enforceInstalledDateAndPullOutUI();
         if (!document.getElementById('btnOpenBlankServiceReport') ||
             document.querySelector('#historyTableBody button')?.innerText.trim() === 'Certificate') {
             upgradeMaintenanceHistoryCertificateButtons();
@@ -2063,5 +2154,5 @@
         if (!document.getElementById('btnAddCalibrationReport')) {
             upgradeCalibrationToolbarUI();
         }
-    }, 800);
+    }, 1200);
 })();
