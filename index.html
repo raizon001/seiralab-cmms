@@ -2,243 +2,252 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Seiralab Incorporated - Diagnostic & Medical Equipment</title>
-    <!-- Tailwind CSS CDN -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+    <title>Seiralab ATLAS — Biomedical Equipment &amp; CMMS Portal</title>
+    <!-- Inline SVG Favicon (Eliminates /favicon.ico 404 console error) -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%230d9488'/><text x='50%25' y='54%25' dominant-baseline='central' text-anchor='middle' fill='white' font-family='Arial,sans-serif' font-weight='900' font-size='56'>S</text></svg>">
+    <!-- Fonts & Icons -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Lucide Icons CDN -->
     <script src="https://unpkg.com/lucide@latest"></script>
-    <!-- Chart.js for Analytics -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <!-- Custom Stylesheet -->
     <link rel="stylesheet" href="./style.css">
 </head>
-<body class="bg-slate-50 text-slate-800 antialiased min-h-screen flex flex-col">
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col antialiased selection:bg-teal-600 selection:text-white">
 
-    <!-- Top Navigation Bar -->
-    <header class="bg-white border-b border-slate-200 sticky top-0 z-30">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-            <div class="flex items-center space-x-3">
-                <div class="h-11 w-11 rounded-lg overflow-hidden shrink-0 flex items-center justify-center shadow-xs border border-slate-200 bg-[#002b66]">
-                    <img src="./seiralab-logo.gIH9ySyn.jpg" 
-                         alt="Seiralab Incorporated Logo" 
-                         class="h-full w-full object-cover object-left"
-                         onerror="this.onerror=null; this.src='./seiralab-logo.jpg';">
-                </div>
+    <!-- ====================================================================
+         FULL-SCREEN LOGIN PORTAL OVERLAY (Managed by login-portal.js)
+         ==================================================================== -->
+    <div id="loginPortalOverlay" class="fixed inset-0 z-[100] bg-slate-950 flex flex-col items-center justify-center p-4 overflow-y-auto select-none">
+        <canvas id="biomedWallpaperCanvas" class="fixed inset-0 pointer-events-none opacity-40"></canvas>
+
+        <div class="relative z-10 w-full max-w-md bg-slate-900/90 backdrop-blur-xl border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl text-center">
+            <!-- Top Brand Banner -->
+            <div class="inline-flex items-center justify-center bg-white rounded-2xl px-4 py-2 mb-5 shadow-md">
+                <img src="./seiralab-logo.jpg" alt="Seiralab Incorporated" class="h-10 sm:h-12 w-auto object-contain" onerror="this.style.display='none'">
+            </div>
+
+            <!-- Team Emblem -->
+            <div class="w-24 h-24 sm:w-28 sm:h-28 mx-auto mb-3 rounded-full p-1 bg-gradient-to-tr from-teal-500 via-emerald-400 to-cyan-500 shadow-lg shadow-teal-500/20">
+                <img src="./team.png.jpg" alt="Biomedical Technical Team" class="w-full h-full object-cover rounded-full bg-slate-900" onerror="this.style.display='none'">
+            </div>
+
+            <h1 class="text-xl sm:text-2xl font-extrabold text-white tracking-wider uppercase">ATLAS</h1>
+            <p class="text-xs text-slate-400 mt-1 mb-6">Select your access role and enter your authorization password</p>
+
+            <form id="portalLoginForm" onsubmit="handlePortalLogin(event)" class="space-y-4 text-left">
                 <div>
-                    <h1 class="text-lg font-bold text-slate-900 tracking-tight">Seiralab Incorporated</h1>
-                    <p class="text-xs text-slate-500 font-medium">Diagnostic &amp; Medical Equipment</p>
+                    <select id="portalRoleSelect" onchange="togglePortalPasswordInput()" class="w-full bg-slate-950/90 border border-slate-700/80 text-white font-semibold text-sm rounded-xl px-4 py-3 text-center focus:outline-none focus:ring-2 focus:ring-teal-500">
+                        <option value="Technical">Technical</option>
+                        <option value="Head Technical">Head Technical</option>
+                        <option value="MasterAdmin">MasterAdmin</option>
+                        <option value="Visitor">Visitor (View Only)</option>
+                    </select>
+                    <div class="text-center mt-1">
+                        <span class="text-[10px] font-bold uppercase tracking-widest text-teal-400">LOGIN</span>
+                    </div>
+                </div>
+
+                <div id="portalPasswordContainer">
+                    <input type="password" id="portalPasswordInput" placeholder="Enter role authorization password" class="w-full bg-slate-950/90 border border-slate-700/80 text-white text-center font-mono text-sm rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-teal-500">
+                    <div class="text-center mt-1">
+                        <span class="text-[10px] font-bold uppercase tracking-widest text-teal-400">PASSWORD</span>
+                    </div>
+                </div>
+
+                <p id="portalErrorMsg" class="hidden text-xs font-semibold text-rose-400 bg-rose-950/60 border border-rose-800/60 rounded-xl px-3 py-2 text-center"></p>
+
+                <button type="submit" class="w-full py-3.5 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 text-white font-bold text-sm rounded-xl shadow-lg shadow-teal-900/40 transition-all cursor-pointer">
+                    Enter Seiralab System
+                </button>
+            </form>
+
+            <div class="mt-5 pt-4 border-t border-slate-800/80">
+                <button type="button" onclick="enterVisitorModeDirect()" class="text-xs font-semibold text-amber-400 hover:text-amber-300 underline cursor-pointer">
+                    Continue as Visitor (View Only) &rarr;
+                </button>
+            </div>
+        </div>
+
+        <p class="relative z-10 text-[11px] text-slate-500 mt-5">Seiralab Incorporated &bull; Diagnostic &amp; Medical Equipment</p>
+    </div>
+
+    <!-- ====================================================================
+         TOP NAVIGATION HEADER
+         ==================================================================== -->
+    <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-2xs">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3">
+            <!-- Brand Logo & Title -->
+            <div class="flex items-center space-x-3 min-w-0">
+                <img src="./seiralab-logo.jpg" alt="Seiralab Logo" class="h-10 w-auto object-contain rounded-lg border border-slate-100 p-0.5 shrink-0" onerror="this.style.display='none'">
+                <div class="min-w-0">
+                    <h1 class="text-base sm:text-lg font-bold text-slate-900 truncate">Seiralab Incorporated</h1>
+                    <p class="text-[11px] text-slate-500 truncate">Diagnostic &amp; Medical Equipment</p>
                 </div>
             </div>
-            
-            <div class="flex items-center space-x-3">
-                <div class="hidden md:flex items-center space-x-2 bg-slate-100 px-3 py-1.5 rounded-full text-xs font-medium text-slate-600">
-                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+
+            <!-- Right Status Pills, Notification Bell & Role Switcher -->
+            <div class="flex items-center space-x-2.5 sm:space-x-3 shrink-0">
+                <div class="hidden md:inline-flex items-center space-x-1.5 px-3 py-1 bg-slate-100 text-slate-700 rounded-full text-xs font-medium">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
                     <span>Technical Department</span>
                 </div>
 
-                <!-- PINK LINE: Restricted to MasterAdmin ONLY -->
-                <button onclick="openGitHubConfigModal()" id="ghStatusBtn" class="restricted-master-only hidden flex items-center space-x-2 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-full text-xs font-medium text-slate-700 transition-colors border border-slate-200">
-                    <span id="ghStatusDot" class="w-2 h-2 rounded-full bg-amber-500"></span>
-                    <span id="ghStatusText">GitHub DB: Local</span>
-                    <i data-lucide="git-branch" class="w-3.5 h-3.5 text-slate-500"></i>
+                <!-- Cloud / GitHub DB Sync Status Button -->
+                <button type="button" id="ghStatusBtn" onclick="openGitHubModal()" class="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-full text-xs font-semibold transition-colors cursor-pointer" title="Database Sync Settings">
+                    <span id="ghStatusDot" class="w-2 h-2 rounded-full bg-slate-400"></span>
+                    <span id="ghStatusText">Cloud DB: Syncing</span>
                 </button>
 
-                <!-- Restricted to MasterAdmin ONLY -->
-                <button onclick="syncFromGitHub()" title="Pull Latest Data from GitHub" class="restricted-master-only hidden p-2 text-slate-600 hover:text-teal-600 hover:bg-slate-100 rounded-full transition-colors">
-                    <i data-lucide="refresh-cw" id="syncSpinner" class="w-4 h-4"></i>
+                <button type="button" onclick="syncFromGitHub(true)" class="p-2 text-slate-500 hover:text-teal-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer" title="Sync Latest Records Now">
+                    <i data-lucide="refresh-cw" class="w-4 h-4"></i>
                 </button>
 
-                <button onclick="openNotificationModal()" class="relative p-2 text-slate-600 hover:text-teal-600 hover:bg-slate-100 rounded-full transition-colors">
+                <!-- Notification Bell -->
+                <button type="button" onclick="openNotificationModal()" class="relative p-2 text-slate-600 hover:text-teal-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer" title="System Notifications">
                     <i data-lucide="bell" class="w-5 h-5"></i>
-                    <span id="notificationBadge" class="absolute top-1 right-1 w-2 h-2 bg-rose-500 rounded-full"></span>
+                    <span id="notificationBadge" class="hidden absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 bg-rose-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">0</span>
                 </button>
 
-                <!-- Right: Role Switcher Dropdown -->
-                <div class="relative border-l border-slate-200 pl-4">
-                    <button onclick="toggleRoleMenu()" class="flex items-center space-x-2.5 hover:bg-slate-50 p-1.5 rounded-xl transition-colors text-left focus:outline-none">
-                        <div class="w-10 h-10 rounded-full overflow-hidden border border-teal-500/40 shadow-xs shrink-0 bg-white flex items-center justify-center">
-                            <img src="./team.png.jpg" 
-                                 alt="Biomedical Technical Team Logo" 
-                                 class="w-full h-full object-cover"
-                                 onerror="this.onerror=null; this.src='./team.png';">
-                        </div>
-                        <div class="hidden sm:block">
-                            <div class="flex items-center space-x-1">
-                                <p id="currentRoleTitle" class="text-xs font-bold text-slate-900">Visitor</p>
-                                <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-slate-400"></i>
-                            </div>
-                            <p id="currentRoleSubtitle" class="text-[10px] text-teal-600 font-medium">Public Viewer (View Only)</p>
-                        </div>
-                    </button>
-
-                   <div id="roleDropdownMenu" class="hidden absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-lg border border-slate-200 py-1.5 z-50">
-                        <div class="px-3 py-1.5 border-b border-slate-100">
-                            <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Switch Access Level</p>
-                        </div>
-                        <button type="button" onclick="requestSwitchRole('Visitor', 'View Only')" class="w-full px-3 py-2.5 text-left text-xs hover:bg-teal-50 flex items-center justify-between group">
-                            <span class="font-semibold text-slate-800 group-hover:text-teal-700">Visitor</span>
-                            <span id="roleCheck-Visitor" class="w-2 h-2 rounded-full bg-teal-600"></span>
-                        </button>
-                        <button type="button" onclick="requestSwitchRole('Technical', 'Welcome, Technical')" class="w-full px-3 py-2.5 text-left text-xs hover:bg-teal-50 flex items-center justify-between group">
-                            <span class="font-semibold text-slate-800 group-hover:text-teal-700">Technical</span>
-                            <span id="roleCheck-Technical" class="w-2 h-2 rounded-full bg-transparent"></span>
-                        </button>
-                        <button type="button" onclick="requestSwitchRole('Head Technical', 'Welcome, Head Technical')" class="w-full px-3 py-2.5 text-left text-xs hover:bg-teal-50 flex items-center justify-between group">
-                            <span class="font-semibold text-slate-800 group-hover:text-teal-700">Head Technical</span>
-                            <span id="roleCheck-Head" class="w-2 h-2 rounded-full bg-transparent"></span>
-                        </button>
-                        <button type="button" onclick="requestSwitchRole('MasterAdmin', 'Welcome, MasterAdmin')" class="w-full px-3 py-2.5 text-left text-xs hover:bg-teal-50 flex items-center justify-between group">
-                            <span class="font-semibold text-slate-800 group-hover:text-teal-700">MasterAdmin</span>
-                            <span id="roleCheck-MasterAdmin" class="w-2 h-2 rounded-full bg-transparent"></span>
-                        </button>
-                    </div>
-                            <span id="roleCheck-MasterAdmin" class="w-2 h-2 rounded-full bg-transparent"></span>
-                        </button>
+                <!-- Role Profile Selector -->
+                <div class="flex items-center space-x-2.5 border-l border-slate-200 pl-3">
+                    <img src="./team.png.jpg" alt="Team" class="w-8 h-8 rounded-full object-cover border border-teal-500/40 shrink-0" onerror="this.style.display='none'">
+                    <div class="text-left">
+                        <select id="accessRoleSelect" onchange="switchAccessRole(this.value)" class="bg-transparent font-bold text-xs text-slate-900 focus:outline-none cursor-pointer pr-1">
+                            <option value="Visitor">Visitor</option>
+                            <option value="Technical">Technical</option>
+                            <option value="Head Technical">Head Technical</option>
+                            <option value="MasterAdmin">MasterAdmin</option>
+                        </select>
+                        <p id="accessRoleSubtext" class="text-[10px] font-medium text-teal-600 leading-tight">Welcome</p>
                     </div>
                 </div>
             </div>
         </div>
+
+        <!-- Navigation Tabs Bar -->
+        <nav class="bg-white border-t border-slate-100">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="flex space-x-5 sm:space-x-7 overflow-x-auto">
+                    <button type="button" onclick="switchTab('dashboard')" id="tab-dashboard" class="tab-btn border-b-2 border-teal-600 text-teal-600 py-3 px-1 text-xs sm:text-sm font-semibold flex items-center space-x-2 whitespace-nowrap cursor-pointer">
+                        <i data-lucide="layout-dashboard" class="w-4 h-4"></i>
+                        <span>Dashboard</span>
+                    </button>
+                    <button type="button" onclick="switchTab('inventory')" id="tab-inventory" class="tab-btn border-b-2 border-transparent text-slate-500 hover:text-slate-800 py-3 px-1 text-xs sm:text-sm font-medium flex items-center space-x-2 whitespace-nowrap cursor-pointer">
+                        <i data-lucide="cpu" class="w-4 h-4"></i>
+                        <span>Equipment Inventory</span>
+                    </button>
+                    <button type="button" onclick="switchTab('schedule')" id="tab-schedule" class="tab-btn border-b-2 border-transparent text-slate-500 hover:text-slate-800 py-3 px-1 text-xs sm:text-sm font-medium flex items-center space-x-2 whitespace-nowrap cursor-pointer">
+                        <i data-lucide="calendar-check" class="w-4 h-4"></i>
+                        <span>PM Schedule &amp; Tasks</span>
+                    </button>
+                    <button type="button" onclick="switchTab('history')" id="tab-history" class="tab-btn border-b-2 border-transparent text-slate-500 hover:text-slate-800 py-3 px-1 text-xs sm:text-sm font-medium flex items-center space-x-2 whitespace-nowrap cursor-pointer">
+                        <i data-lucide="history" class="w-4 h-4"></i>
+                        <span>Maintenance History &amp; Logs</span>
+                    </button>
+                    <button type="button" onclick="switchTab('reports')" id="tab-reports" class="tab-btn border-b-2 border-transparent text-slate-500 hover:text-slate-800 py-3 px-1 text-xs sm:text-sm font-medium flex items-center space-x-2 whitespace-nowrap cursor-pointer">
+                        <i data-lucide="bar-chart-3" class="w-4 h-4"></i>
+                        <span>Reports &amp; Analytics</span>
+                    </button>
+                    <button type="button" onclick="switchTab('calibration')" id="tab-calibration" class="tab-btn border-b-2 border-transparent text-slate-500 hover:text-slate-800 py-3 px-1 text-xs sm:text-sm font-medium flex items-center space-x-2 whitespace-nowrap cursor-pointer">
+                        <i data-lucide="file-check-2" class="w-4 h-4"></i>
+                        <span>Calibration Report</span>
+                    </button>
+                    <button type="button" onclick="switchTab('tools')" id="tab-tools" class="tab-btn border-b-2 border-transparent text-slate-500 hover:text-slate-800 py-3 px-1 text-xs sm:text-sm font-medium flex items-center space-x-2 whitespace-nowrap cursor-pointer">
+                        <i data-lucide="wrench" class="w-4 h-4"></i>
+                        <span>Tool &amp; Kit Logbook</span>
+                    </button>
+                </div>
+            </div>
+        </nav>
     </header>
 
-    <!-- Navigation Tabs -->
-    <nav class="bg-white border-b border-slate-200 shadow-xs">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex overflow-x-auto space-x-6">
-            <button onclick="switchTab('dashboard')" class="tab-btn py-3 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 border-teal-600 text-teal-600 whitespace-nowrap" data-target="dashboard">
-                <i data-lucide="layout-dashboard" class="w-4 h-4"></i>
-                <span>Dashboard</span>
-            </button>
+    <!-- ====================================================================
+         MAIN APPLICATION CONTENT
+         ==================================================================== -->
+    <main class="max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 space-y-6">
 
-            <!-- Restricted to Head Technical & MasterAdmin ONLY -->
-            <button id="navTabInventory" onclick="switchTab('inventory')" class="restricted-head-master hidden tab-btn py-3 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 border-transparent text-slate-500 hover:text-slate-700 whitespace-nowrap" data-target="inventory">
-                <i data-lucide="cpu" class="w-4 h-4"></i>
-                <span>Equipment Inventory</span>
-            </button>
-
-            <button onclick="switchTab('schedule')" class="tab-btn py-3 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 border-transparent text-slate-500 hover:text-slate-700 whitespace-nowrap" data-target="schedule">
-                <i data-lucide="calendar-check" class="w-4 h-4"></i>
-                <span>PM Schedule &amp; Tasks</span>
-            </button>
-
-            <button onclick="switchTab('history')" class="tab-btn py-3 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 border-transparent text-slate-500 hover:text-slate-700 whitespace-nowrap" data-target="history">
-                <i data-lucide="history" class="w-4 h-4"></i>
-                <span>Maintenance History &amp; Logs</span>
-            </button>
-
-            <button id="navTabReports" onclick="switchTab('reports')" class="tab-btn py-3 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 border-transparent text-slate-500 hover:text-slate-700 whitespace-nowrap" data-target="reports">
-                <i data-lucide="bar-chart-3" class="w-4 h-4"></i>
-                <span>Reports &amp; Analytics</span>
-            </button>
-
-            <button id="navTabCalibration" onclick="switchTab('calibration')" class="tab-btn py-3 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 border-transparent text-slate-500 hover:text-slate-700 whitespace-nowrap" data-target="calibration">
-                <i data-lucide="file-check-2" class="w-4 h-4"></i>
-                <span>Calibration Report</span>
-            </button>
-
-            <button id="navTabTools" onclick="switchTab('tools')" class="tab-btn py-3 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 border-transparent text-slate-500 hover:text-slate-700 whitespace-nowrap" data-target="tools">
-                <i data-lucide="wrench" class="w-4 h-4"></i>
-                <span>Tool &amp; Kit Logbook</span>
-            </button>
-        </div>
-    </nav>
-
-    <!-- Main Content Container -->
-    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
-
-        <!-- TAB 1: DASHBOARD -->
-        <div id="dashboard" class="tab-content active space-y-6">
-            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <!-- 1. DASHBOARD TAB -->
+        <section id="dashboard" class="tab-content active space-y-6">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                    <h2 class="text-2xl font-bold text-slate-900">System Dashboard</h2>
-                    <p class="text-sm text-slate-500">Real-time overview of medical asset status, compliance rates, and pending PM tasks.</p>
+                    <h2 class="text-xl sm:text-2xl font-bold text-slate-900">Biomedical Operations Dashboard</h2>
+                    <p class="text-xs sm:text-sm text-slate-500">Real-time fleet status, preventive maintenance compliance, and hospital site coverage.</p>
                 </div>
-                <div class="flex items-center space-x-3">
-                    <button onclick="openAddEquipmentModal()" class="restricted-head-master hidden inline-flex items-center justify-center px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 font-medium text-sm shadow-sm transition-all space-x-2">
-                        <i data-lucide="plus" class="w-4 h-4"></i>
-                        <span>Add Equipment</span>
-                    </button>
-                    <button onclick="exportDashboardReport()" class="inline-flex items-center justify-center px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 font-medium text-sm shadow-xs transition-all space-x-2">
-                        <i data-lucide="download" class="w-4 h-4"></i>
-                        <span>Export Summary</span>
+                <div class="flex items-center space-x-2.5">
+                    <button type="button" onclick="switchTab('schedule')" class="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs sm:text-sm font-semibold shadow-xs transition-all cursor-pointer">
+                        View PM Schedule
                     </button>
                 </div>
             </div>
 
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-                <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
+            <!-- KPI Cards -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-2xs flex items-center justify-between">
                     <div>
-                        <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Total Equipment</p>
-                        <h3 id="statTotal" class="text-2xl font-bold text-slate-900 mt-1">0</h3>
-                        <span class="text-xs text-slate-400 mt-1 inline-block">Active hospital assets</span>
+                        <p class="text-xs font-semibold uppercase tracking-wider text-slate-400">Total Medical Assets</p>
+                        <p id="statTotalAssets" class="text-2xl sm:text-3xl font-extrabold text-slate-900 mt-1">0</p>
+                        <p class="text-xs text-emerald-600 font-medium mt-1">Active across client sites</p>
                     </div>
-                    <div class="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
-                        <i data-lucide="cpu" class="w-6 h-6"></i>
+                    <div class="w-12 h-12 rounded-2xl bg-teal-50 text-teal-600 flex items-center justify-center">
+                        <i data-lucide="activity" class="w-6 h-6"></i>
                     </div>
                 </div>
 
-                <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
+                <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-2xs flex items-center justify-between">
                     <div>
-                        <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Due for PM</p>
-                        <h3 id="statDue" class="text-2xl font-bold text-amber-600 mt-1">0</h3>
-                        <span class="text-xs text-amber-600 mt-1 inline-block font-medium">Due within 30 days</span>
+                        <p class="text-xs font-semibold uppercase tracking-wider text-slate-400">Operational Fleet</p>
+                        <p id="statOperational" class="text-2xl sm:text-3xl font-extrabold text-emerald-600 mt-1">0</p>
+                        <p id="statComplianceRate" class="text-xs text-slate-500 mt-1">100% readiness</p>
                     </div>
-                    <div class="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
-                        <i data-lucide="clock" class="w-6 h-6"></i>
-                    </div>
-                </div>
-
-                <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
-                    <div>
-                        <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Overdue PM</p>
-                        <h3 id="statOverdue" class="text-2xl font-bold text-rose-600 mt-1">0</h3>
-                        <span class="text-xs text-rose-600 mt-1 inline-block font-medium">Requires immediate action</span>
-                    </div>
-                    <div class="w-12 h-12 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
-                        <i data-lucide="alert-triangle" class="w-6 h-6"></i>
-                    </div>
-                </div>
-
-                <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
-                    <div>
-                        <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Completed (YTD)</p>
-                        <h3 id="statCompleted" class="text-2xl font-bold text-emerald-600 mt-1">0</h3>
-                        <span class="text-xs text-emerald-600 mt-1 inline-block font-medium">Successfully serviced</span>
-                    </div>
-                    <div class="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                    <div class="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
                         <i data-lucide="check-circle-2" class="w-6 h-6"></i>
                     </div>
                 </div>
 
-                <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between sm:col-span-2 lg:col-span-1">
+                <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-2xs flex items-center justify-between">
                     <div>
-                        <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Compliance Rate</p>
-                        <h3 id="statCompliance" class="text-2xl font-bold text-teal-600 mt-1">0%</h3>
-                        <span class="text-xs text-teal-600 mt-1 inline-block font-medium">JCAHO / ISO standard</span>
+                        <p class="text-xs font-semibold uppercase tracking-wider text-slate-400">PM Due Soon (30d)</p>
+                        <p id="statDueSoon" class="text-2xl sm:text-3xl font-extrabold text-amber-600 mt-1">0</p>
+                        <p class="text-xs text-amber-600 font-medium mt-1">Requires scheduling</p>
                     </div>
-                    <div class="w-12 h-12 rounded-xl bg-teal-50 text-teal-600 flex items-center justify-center">
-                        <i data-lucide="shield-check" class="w-6 h-6"></i>
+                    <div class="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center">
+                        <i data-lucide="clock" class="w-6 h-6"></i>
+                    </div>
+                </div>
+
+                <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-2xs flex items-center justify-between">
+                    <div>
+                        <p class="text-xs font-semibold uppercase tracking-wider text-slate-400">Overdue / Under Repair</p>
+                        <p id="statOverdue" class="text-2xl sm:text-3xl font-extrabold text-rose-600 mt-1">0</p>
+                        <p class="text-xs text-rose-600 font-medium mt-1">Priority dispatch</p>
+                    </div>
+                    <div class="w-12 h-12 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center">
+                        <i data-lucide="alert-triangle" class="w-6 h-6"></i>
                     </div>
                 </div>
             </div>
 
+            <!-- Critical & Overdue PM Table + Recent Logs -->
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div class="lg:col-span-2 bg-white rounded-2xl border border-slate-200 p-6 shadow-xs">
+                <div class="lg:col-span-2 bg-white rounded-2xl border border-slate-200/80 shadow-2xs p-5">
                     <div class="flex items-center justify-between mb-4">
-                        <h3 class="font-bold text-slate-900 text-lg flex items-center space-x-2">
+                        <h3 class="font-bold text-slate-900 flex items-center space-x-2 text-sm sm:text-base">
                             <i data-lucide="alert-circle" class="w-5 h-5 text-rose-500"></i>
                             <span>Critical &amp; Overdue Preventive Maintenance</span>
                         </h3>
-                        <button onclick="switchTab('schedule')" class="text-xs font-semibold text-teal-600 hover:text-teal-700">View Schedule &rarr;</button>
+                        <button type="button" onclick="switchTab('schedule')" class="text-xs font-semibold text-teal-600 hover:text-teal-700 cursor-pointer">View Schedule &rarr;</button>
                     </div>
                     <div class="overflow-x-auto">
-                        <table class="w-full text-left text-sm">
+                        <table class="w-full text-left border-collapse text-xs sm:text-sm">
                             <thead>
-                                <tr class="border-b border-slate-100 text-slate-400 font-medium text-xs">
-                                    <th class="pb-3">Equipment Name</th>
-                                    <th class="pb-3">Hospital / Lab</th>
-                                    <th class="pb-3">Risk Level</th>
-                                    <th class="pb-3">Due Date</th>
-                                    <th class="pb-3 text-right">Action Taken</th>
+                                <tr class="border-b border-slate-200 text-[11px] font-bold uppercase text-slate-400">
+                                    <th class="py-3 px-3">Equipment</th>
+                                    <th class="py-3 px-3">Hospital / Lab</th>
+                                    <th class="py-3 px-3 hidden">Risk</th>
+                                    <th class="py-3 px-3">Due Date</th>
+                                    <th class="py-3 px-3 text-right">Action</th>
                                 </tr>
                             </thead>
                             <tbody id="urgentTableBody" class="divide-y divide-slate-100"></tbody>
@@ -246,134 +255,69 @@
                     </div>
                 </div>
 
-                <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs flex flex-col justify-between">
-                    <div>
-                        <h3 class="font-bold text-slate-900 text-lg mb-2">Quick Shortcuts</h3>
-                        <p class="text-xs text-slate-500 mb-6">Common biomedical engineering tasks and tool check-out.</p>
-                        
-                        <div class="space-y-3">
-                            <button onclick="openChecklistModal()" class="w-full flex items-center justify-between p-3 rounded-xl border border-slate-200 hover:border-teal-500 hover:bg-teal-50/50 transition-all text-left group">
-                                <div class="flex items-center space-x-3">
-                                    <div class="p-2 rounded-lg bg-teal-100 text-teal-700 group-hover:bg-teal-600 group-hover:text-white transition-colors">
-                                        <i data-lucide="check-square" class="w-4 h-4"></i>
-                                    </div>
-                                    <div>
-                                        <p class="text-xs font-semibold text-slate-900">Execute PM Checklist</p>
-                                        <p class="text-[10px] text-slate-500">Analyzers, Monitors, X-Ray...</p>
-                                    </div>
-                                </div>
-                                <i data-lucide="chevron-right" class="w-4 h-4 text-slate-400"></i>
-                            </button>
-
-                            <button onclick="switchTab('tools'); openBorrowToolModal();" class="w-full flex items-center justify-between p-3 rounded-xl border border-slate-200 hover:border-teal-500 hover:bg-teal-50/50 transition-all text-left group">
-                                <div class="flex items-center space-x-3">
-                                    <div class="p-2 rounded-lg bg-amber-100 text-amber-700 group-hover:bg-amber-600 group-hover:text-white transition-colors">
-                                        <i data-lucide="wrench" class="w-4 h-4"></i>
-                                    </div>
-                                    <div>
-                                        <p class="text-xs font-semibold text-slate-900">Borrow Biomed Tool / Kit</p>
-                                        <p class="text-[10px] text-slate-500">Log out office tools &amp; test meters</p>
-                                    </div>
-                                </div>
-                                <i data-lucide="chevron-right" class="w-4 h-4 text-slate-400"></i>
-                            </button>
-
-                            <button onclick="switchTab('reports')" class="w-full flex items-center justify-between p-3 rounded-xl border border-slate-200 hover:border-teal-500 hover:bg-teal-50/50 transition-all text-left group">
-                                <div class="flex items-center space-x-3">
-                                    <div class="p-2 rounded-lg bg-emerald-100 text-emerald-700 group-hover:bg-emerald-600 group-hover:text-white transition-colors">
-                                        <i data-lucide="file-text" class="w-4 h-4"></i>
-                                    </div>
-                                    <div>
-                                        <p class="text-xs font-semibold text-slate-900">Generate Audit Report</p>
-                                        <p class="text-[10px] text-slate-500">Compliance &amp; calibration analytics</p>
-                                    </div>
-                                </div>
-                                <i data-lucide="chevron-right" class="w-4 h-4 text-slate-400"></i>
-                            </button>
-
-                            <button onclick="switchTab('inventory'); openAddEquipmentModal();" class="restricted-head-master hidden w-full flex items-center justify-between p-3 rounded-xl border border-slate-200 hover:border-teal-500 hover:bg-teal-50/50 transition-all text-left group">
-                                <div class="flex items-center space-x-3">
-                                    <div class="p-2 rounded-lg bg-blue-100 text-blue-700 group-hover:bg-blue-600 group-hover:text-white transition-colors">
-                                        <i data-lucide="plus-circle" class="w-4 h-4"></i>
-                                    </div>
-                                    <div>
-                                        <p class="text-xs font-semibold text-slate-900">Register New Asset</p>
-                                        <p class="text-[10px] text-slate-500">Add serial, model, facility</p>
-                                    </div>
-                                </div>
-                                <i data-lucide="chevron-right" class="w-4 h-4 text-slate-400"></i>
-                            </button>
-                        </div>
+                <div class="bg-white rounded-2xl border border-slate-200/80 shadow-2xs p-5">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="font-bold text-slate-900 text-sm sm:text-base">Recent Maintenance Activity</h3>
+                        <button type="button" onclick="switchTab('history')" class="text-xs font-semibold text-teal-600 hover:text-teal-700 cursor-pointer">Full Log &rarr;</button>
                     </div>
-
-                    <div class="restricted-master-only hidden mt-6 pt-4 border-t border-slate-100 bg-slate-50 p-3 rounded-xl">
-                        <div class="flex items-center justify-between text-xs font-medium text-slate-700">
-                            <span class="flex items-center space-x-2">
-                                <i data-lucide="git-commit" class="w-4 h-4 text-teal-600"></i>
-                                <span id="lastSyncInfo">SHA: Local Storage</span>
-                            </span>
-                            <button onclick="pushToGitHub('Manual backup sync')" class="text-teal-600 hover:underline font-semibold">Force Push</button>
-                        </div>
-                    </div>
+                    <div id="recentActivityFeed" class="space-y-3"></div>
                 </div>
             </div>
-        </div>
+        </section>
 
-        <!-- TAB 2: INVENTORY MANAGEMENT -->
-        <div id="inventory" class="tab-content space-y-6">
-            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <!-- 2. EQUIPMENT INVENTORY TAB -->
+        <section id="inventory" class="tab-content space-y-5">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                    <h2 class="text-2xl font-bold text-slate-900">Equipment Inventory Management</h2>
-                    <p class="text-sm text-slate-500">Complete database of medical machinery, client hospital/laboratory facility, criticality, and service intervals.</p>
+                    <h2 class="text-xl sm:text-2xl font-bold text-slate-900">Equipment Inventory Management</h2>
+                    <p class="text-xs sm:text-sm text-slate-500">Complete database of medical machinery, client hospital/laboratory facility, and installation records.</p>
                 </div>
-                <div class="flex items-center space-x-3">
-                    <button onclick="openAddEquipmentModal()" class="inline-flex items-center justify-center px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 font-medium text-sm shadow-sm transition-all space-x-2">
+                <div class="flex items-center space-x-2.5 shrink-0 flex-wrap gap-y-2">
+                    <button type="button" id="btnInventoryImportAsset" onclick="triggerAssetImportPicker()" class="inline-flex items-center justify-center px-3.5 py-2 bg-white border border-slate-300 hover:border-teal-600 text-slate-700 hover:text-teal-700 rounded-lg font-medium text-xs sm:text-sm shadow-xs transition-all space-x-1.5 cursor-pointer">
+                        <i data-lucide="file-spreadsheet" class="w-4 h-4 text-teal-600"></i>
+                        <span>Import Asset Data (.xlsx / .xls / .csv)</span>
+                    </button>
+                    <button type="button" onclick="openAddModal()" class="inline-flex items-center justify-center px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg font-semibold text-xs sm:text-sm shadow-xs transition-all space-x-1.5 cursor-pointer">
                         <i data-lucide="plus" class="w-4 h-4"></i>
                         <span>Add Equipment</span>
                     </button>
                 </div>
             </div>
 
-            <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row items-center justify-between gap-4">
-                <div class="relative w-full md:w-80">
-                    <i data-lucide="search" class="absolute left-3 top-3 w-4 h-4 text-slate-400"></i>
-                    <input type="text" id="inventorySearch" oninput="renderInventoryTable()" placeholder="Search by name, serial, model..." class="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+            <!-- Search & Filter Bar -->
+            <div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <div class="relative">
+                    <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
+                    <input type="text" id="inventorySearch" placeholder="Search by equipment, model, serial, or hospital..." class="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
                 </div>
-                <div class="flex flex-wrap items-center gap-3 w-full md:w-auto">
-                    <select id="filterFacility" onchange="renderInventoryTable()" class="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
-                        <option value="">All Hospitals / Labs</option>
-                    </select>
-                    <select id="filterDepartment" onchange="renderInventoryTable()" class="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
-                        <option value="">All Departments</option>
-                        <option value="ICU">ICU</option>
-                        <option value="Radiology">Radiology</option>
-                        <option value="Emergency">Emergency</option>
-                        <option value="Cardiology">Cardiology</option>
-                        <option value="Surgery">Surgery</option>
-                        <option value="Pathology Lab">Pathology Lab</option>
-                        <option value="Pediatrics">Pediatrics</option>
-                    </select>
-                    <select id="filterStatus" onchange="renderInventoryTable()" class="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
-                        <option value="">All Statuses</option>
-                        <option value="Operational">Operational</option>
-                        <option value="Under Maintenance">Under Maintenance</option>
-                        <option value="Out of Service">Out of Service</option>
-                    </select>
-                </div>
+                <select id="facilityFilter" class="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs sm:text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500">
+                    <option value="">All Hospitals / Labs</option>
+                </select>
+                <select id="deptFilter" class="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs sm:text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500">
+                    <option value="">All Departments</option>
+                </select>
+                <select id="statusFilter" class="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs sm:text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500">
+                    <option value="">All Statuses</option>
+                    <option value="Operational">Operational</option>
+                    <option value="Maintenance Due">Maintenance Due</option>
+                    <option value="Under Repair">Under Repair</option>
+                    <option value="PULL OUT">PULL OUT</option>
+                </select>
             </div>
 
-            <div class="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+            <!-- Inventory Table -->
+            <div class="bg-white rounded-2xl border border-slate-200/80 shadow-2xs overflow-hidden">
                 <div class="overflow-x-auto">
-                    <table class="w-full text-left text-sm">
-                        <thead class="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold text-xs uppercase tracking-wider">
-                            <tr>
+                    <table class="w-full text-left border-collapse text-xs sm:text-sm">
+                        <thead>
+                            <tr class="bg-slate-50/80 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-500">
                                 <th class="p-4">Equipment &amp; Model</th>
                                 <th class="p-4">Serial / ID</th>
                                 <th class="p-4">Hospital / Laboratory</th>
                                 <th class="p-4">Dept &amp; Location</th>
-                                <th class="p-4">Risk</th>
+                                <th class="p-4 hidden">Risk</th>
                                 <th class="p-4">Status</th>
-                                <th class="p-4">Next PM Due</th>
+                                <th class="p-4">INSTALLED DATE</th>
                                 <th class="p-4 text-right">Actions</th>
                             </tr>
                         </thead>
@@ -381,64 +325,58 @@
                     </table>
                 </div>
             </div>
-        </div>
+        </section>
 
-        <!-- TAB 3: PM SCHEDULE & TASK TRACKER -->
-        <div id="schedule" class="tab-content space-y-6">
-            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <!-- 3. PM SCHEDULE & TASKS TAB -->
+        <section id="schedule" class="tab-content space-y-5">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                    <h2 class="text-2xl font-bold text-slate-900">Preventive Maintenance Schedule &amp; Task Tracker</h2>
-                    <p class="text-sm text-slate-500">Manage PM checklists, assign certified biomedical technicians, and log service records.</p>
+                    <h2 class="text-xl sm:text-2xl font-bold text-slate-900">Preventive Maintenance Schedule &amp; Work Orders</h2>
+                    <p class="text-xs sm:text-sm text-slate-500">Upcoming and overdue preventive maintenance tasks across client hospitals.</p>
                 </div>
-                <div class="flex items-center space-x-3">
-                    <button onclick="openChecklistModal()" class="inline-flex items-center justify-center px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 font-medium text-sm shadow-sm transition-all space-x-2">
-                        <i data-lucide="clipboard-check" class="w-4 h-4"></i>
-                        <span>Execute PM Task</span>
-                    </button>
-                </div>
-            </div>
-
-            <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-4">
                 <div class="flex items-center space-x-2">
-                    <button onclick="setScheduleFilter('all')" id="schedBtnAll" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-teal-600 text-white transition-colors">All Tasks</button>
-                    <button onclick="setScheduleFilter('due')" id="schedBtnDue" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors">Upcoming &amp; Due</button>
-                    <button onclick="setScheduleFilter('overdue')" id="schedBtnOverdue" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors">Overdue</button>
+                    <select id="scheduleFilter" onchange="renderScheduleCards()" class="bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs sm:text-sm font-medium text-slate-700 focus:outline-none">
+                        <option value="all">All Scheduled Tasks</option>
+                        <option value="overdue">Overdue Only</option>
+                        <option value="due-soon">Due Within 30 Days</option>
+                    </select>
                 </div>
             </div>
+            <div id="scheduleCardsGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+        </section>
 
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="tasksGrid"></div>
-        </div>
-
-        <!-- TAB 4: MAINTENANCE HISTORY & LOGS -->
-        <div id="history" class="tab-content space-y-6">
-            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <!-- 4. MAINTENANCE HISTORY & LOGS TAB -->
+        <section id="history" class="tab-content space-y-5">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                    <h2 class="text-2xl font-bold text-slate-900">Maintenance History &amp; Audit Logs</h2>
-                    <p class="text-sm text-slate-500">Immutable audit trail of past PM activities, calibrations, repair notes, and technician signatures.</p>
+                    <h2 class="text-xl sm:text-2xl font-bold text-slate-900">Maintenance History &amp; Audit Logs</h2>
+                    <p class="text-xs sm:text-sm text-slate-500">Immutable audit trail of past PM activities, calibrations, repair notes, and technician signatures.</p>
                 </div>
-                <div class="flex items-center space-x-3">
-                    <button onclick="exportHistoryLogs()" class="inline-flex items-center justify-center px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 font-medium text-sm shadow-xs transition-all space-x-2">
+                <div class="flex items-center space-x-2 shrink-0 flex-wrap gap-y-2">
+                    <button type="button" id="btnOpenBlankServiceReport" onclick="openNewServiceReportRegistration()" class="inline-flex items-center justify-center px-3.5 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg font-medium text-xs sm:text-sm shadow-xs transition-all space-x-1.5 whitespace-nowrap cursor-pointer">
+                        <i data-lucide="file-plus-2" class="w-4 h-4"></i>
+                        <span>Service Report Form</span>
+                    </button>
+                    <button type="button" onclick="exportHistoryCSV()" class="inline-flex items-center justify-center px-3.5 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-lg font-medium text-xs sm:text-sm shadow-2xs transition-all space-x-1.5 cursor-pointer">
                         <i data-lucide="download" class="w-4 h-4"></i>
                         <span>Export Audit Trail CSV</span>
                     </button>
                 </div>
             </div>
 
-            <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-4">
-                <div class="relative w-full sm:w-96">
-                    <i data-lucide="search" class="absolute left-3 top-3 w-4 h-4 text-slate-400"></i>
-                    <input type="text" id="historySearch" oninput="renderHistoryTable()" placeholder="Search logs by equipment, technician, notes..." class="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+            <div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div class="relative w-full sm:max-w-md">
+                    <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
+                    <input type="text" id="historySearch" oninput="renderHistoryTable()" placeholder="Search logs by equipment, technician, notes..." class="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
                 </div>
-                <div class="text-xs font-medium text-slate-500">
-                    Showing verified compliance logs &amp; service reports
-                </div>
+                <span class="text-xs text-slate-400">Showing verified compliance logs &amp; service reports</span>
             </div>
 
-            <div class="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+            <div class="bg-white rounded-2xl border border-slate-200/80 shadow-2xs overflow-hidden">
                 <div class="overflow-x-auto">
-                    <table class="w-full text-left text-sm">
-                        <thead class="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold text-xs uppercase tracking-wider">
-                            <tr>
+                    <table class="w-full text-left border-collapse text-xs sm:text-sm">
+                        <thead>
+                            <tr class="bg-slate-50/80 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-500">
                                 <th class="p-4">Service Date</th>
                                 <th class="p-4">Equipment Name</th>
                                 <th class="p-4">Hospital / Lab</th>
@@ -452,593 +390,313 @@
                     </table>
                 </div>
             </div>
-        </div>
+        </section>
 
-        <!-- TAB 5: REPORTS & ANALYTICS -->
-        <div id="reports" class="tab-content space-y-6">
-            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <!-- 5. REPORTS & ANALYTICS TAB -->
+        <section id="reports" class="tab-content space-y-6">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                    <h2 class="text-2xl font-bold text-slate-900">Reports &amp; Analytics</h2>
-                    <p class="text-sm text-slate-500">Visual metrics showing maintenance compliance, equipment health status, and facility breakdowns.</p>
+                    <h2 class="text-xl sm:text-2xl font-bold text-slate-900">Compliance Reports &amp; Fleet Analytics</h2>
+                    <p class="text-xs sm:text-sm text-slate-500">Departmental breakdown, hospital site distribution, and PM completion metrics.</p>
                 </div>
-                <div class="flex items-center space-x-3">
-                    <button onclick="window.print()" class="inline-flex items-center justify-center px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 font-medium text-sm shadow-sm transition-all space-x-2">
-                        <i data-lucide="printer" class="w-4 h-4"></i>
-                        <span>Print Report</span>
-                    </button>
+                <button type="button" onclick="window.print()" class="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs sm:text-sm font-semibold inline-flex items-center space-x-2 cursor-pointer self-start">
+                    <i data-lucide="printer" class="w-4 h-4"></i>
+                    <span>Print Summary Report</span>
+                </button>
+            </div>
+            <div id="reportsContainer" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-2xs">
+                    <h3 class="font-bold text-slate-900 text-sm mb-4">Equipment by Status</h3>
+                    <div id="reportStatusBreakdown" class="space-y-3"></div>
+                </div>
+                <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-2xs">
+                    <h3 class="font-bold text-slate-900 text-sm mb-4">Top Client Hospitals &amp; Laboratories</h3>
+                    <div id="reportFacilityBreakdown" class="space-y-3"></div>
                 </div>
             </div>
+        </section>
 
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs">
-                    <h3 class="font-bold text-slate-900 text-base mb-1">Preventive Maintenance Compliance</h3>
-                    <p class="text-xs text-slate-500 mb-4">On-time vs overdue maintenance per facility</p>
-                    <div class="h-64 relative flex items-center justify-center">
-                        <canvas id="complianceChart"></canvas>
-                    </div>
-                </div>
-
-                <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs">
-                    <h3 class="font-bold text-slate-900 text-base mb-1">Equipment Health &amp; Status Breakdown</h3>
-                    <p class="text-xs text-slate-500 mb-4">Operational status distribution across assets</p>
-                    <div class="h-64 relative flex items-center justify-center">
-                        <canvas id="healthChart"></canvas>
-                    </div>
-                </div>
-
-                <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs lg:col-span-2">
-                    <h3 class="font-bold text-slate-900 text-base mb-1">Annual PM Execution Trend (2026)</h3>
-                    <p class="text-xs text-slate-500 mb-4">Number of completed preventive maintenance tasks per month</p>
-                    <div class="h-72 relative flex items-center justify-center">
-                        <canvas id="trendChart"></canvas>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-       <!-- TAB 6: CALIBRATION REPORT -->
-        <div id="calibration" class="tab-content space-y-6">
-            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <!-- 6. CALIBRATION REPORT TAB -->
+        <section id="calibration" class="tab-content space-y-5">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                    <h2 class="text-2xl font-bold text-slate-900">Calibration &amp; Metrology Reports</h2>
-                    <p class="text-sm text-slate-500">Official calibration certificates, sensor accuracy logs, and traceability records for hospital equipment.</p>
+                    <h2 class="text-xl sm:text-2xl font-bold text-slate-900">Calibration &amp; Metrology Reports</h2>
+                    <p class="text-xs sm:text-sm text-slate-500">Official calibration certificates, sensor accuracy logs, and traceability records for hospital equipment.</p>
                 </div>
-                <div class="flex flex-wrap items-center gap-3">
-                    <!-- GREEN LINE: Add Calibration Report Button -->
-                    <button type="button" id="btnAddCalibrationReport" onclick="openAddCalibrationModal()" class="inline-flex items-center justify-center px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 font-medium text-sm shadow-sm transition-all space-x-2">
+                <div class="flex items-center space-x-2.5 shrink-0 flex-wrap gap-2">
+                    <button type="button" id="btnAddCalibrationReport" onclick="openAddCalibrationModal()" class="inline-flex items-center justify-center px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 font-semibold text-xs sm:text-sm shadow-xs transition-all space-x-1.5 whitespace-nowrap cursor-pointer">
                         <i data-lucide="plus" class="w-4 h-4"></i>
                         <span>Add Calibration Report</span>
                     </button>
-                    <!-- PINK LINE: Export Calibration Data Button -->
-                    <button type="button" id="btnExportCalibrationData" onclick="exportCalibrationDataCSV()" class="inline-flex items-center justify-center px-4 py-2 bg-white border border-teal-600 text-teal-700 rounded-lg hover:bg-teal-50 font-medium text-sm shadow-xs transition-all space-x-2">
-                        <i data-lucide="download" class="w-4 h-4"></i>
-                        <span>Export Calibration Data</span>
-                    </button>
-                    <button type="button" onclick="window.print()" class="inline-flex items-center justify-center px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-900 font-medium text-sm shadow-sm transition-all space-x-2">
+                    <button type="button" id="btnPrintCalibrationReport" onclick="openLatestCalibrationCertForPrint()" class="inline-flex items-center justify-center px-4 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 font-semibold text-xs sm:text-sm shadow-xs transition-all space-x-1.5 whitespace-nowrap cursor-pointer">
                         <i data-lucide="printer" class="w-4 h-4"></i>
                         <span>Print Calibration Report</span>
                     </button>
                 </div>
             </div>
+
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
+                <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-2xs flex items-center justify-between">
                     <div>
-                        <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Total Calibrated Assets</p>
-                        <h3 id="statCalTotal" class="text-2xl font-bold text-slate-900 mt-1">24</h3>
-                        <span class="text-xs text-emerald-600 mt-1 inline-block font-medium">Within tolerance limits</span>
+                        <p class="text-xs font-semibold uppercase tracking-wider text-slate-400">Total Calibrated Assets</p>
+                        <p id="statCalTotal" class="text-2xl font-extrabold text-slate-900 mt-1">0</p>
+                        <p class="text-xs text-emerald-600 font-medium mt-1">Within tolerance limits</p>
                     </div>
-                    <div class="w-12 h-12 rounded-xl bg-teal-50 text-teal-600 flex items-center justify-center">
-                        <i data-lucide="award" class="w-6 h-6"></i>
+                    <div class="w-11 h-11 rounded-2xl bg-teal-50 text-teal-600 flex items-center justify-center">
+                        <i data-lucide="award" class="w-5 h-5"></i>
                     </div>
                 </div>
-
-                <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
+                <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-2xs flex items-center justify-between">
                     <div>
-                        <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Due for Recalibration</p>
-                        <h3 id="statCalDue" class="text-2xl font-bold text-amber-600 mt-1">3</h3>
-                        <span class="text-xs text-amber-600 mt-1 inline-block font-medium">Next 30 days</span>
+                        <p class="text-xs font-semibold uppercase tracking-wider text-slate-400">Due for Recalibration</p>
+                        <p id="statCalDue" class="text-2xl font-extrabold text-amber-600 mt-1">0</p>
+                        <p class="text-xs text-amber-600 font-medium mt-1">Next 30 days</p>
                     </div>
-                    <div class="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
-                        <i data-lucide="alert-circle" class="w-6 h-6"></i>
+                    <div class="w-11 h-11 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center">
+                        <i data-lucide="alert-circle" class="w-5 h-5"></i>
                     </div>
                 </div>
-
-                <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
+                <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-2xs flex items-center justify-between">
                     <div>
-                        <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">ISO/IEC 17025 Status</p>
-                        <h3 class="text-2xl font-bold text-emerald-600 mt-1">Certified</h3>
-                        <span class="text-xs text-slate-400 mt-1 inline-block">Traceable standards</span>
+                        <p class="text-xs font-semibold uppercase tracking-wider text-slate-400">ISO / DOH Status</p>
+                        <p class="text-2xl font-extrabold text-emerald-600 mt-1">Certified</p>
+                        <p class="text-xs text-slate-400 mt-1">Traceable standards</p>
                     </div>
-                    <div class="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                        <i data-lucide="shield-check" class="w-6 h-6"></i>
+                    <div class="w-11 h-11 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                        <i data-lucide="shield-check" class="w-5 h-5"></i>
                     </div>
                 </div>
             </div>
 
-            <div class="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+            <div class="bg-white rounded-2xl border border-slate-200/80 shadow-2xs overflow-hidden">
                 <div class="p-4 border-b border-slate-100 flex items-center justify-between">
-                    <h3 class="font-bold text-slate-900 text-base">Active Calibration Certificates</h3>
-                    <span class="text-xs text-slate-500">Showing metrology compliance across Seiralab client sites</span>
+                    <h3 class="font-bold text-slate-900 text-sm">Active Calibration Certificates</h3>
+                    <span class="text-xs text-slate-400">Showing metrology compliance across Seiralab client sites</span>
                 </div>
                 <div class="overflow-x-auto">
-                    <table class="w-full text-left text-sm">
-                        <thead class="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold text-xs uppercase tracking-wider">
-                            <tr>
+                    <table class="w-full text-left border-collapse text-xs sm:text-sm">
+                        <thead>
+                            <tr class="bg-slate-50/80 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-500">
                                 <th class="p-4">Certificate ID</th>
                                 <th class="p-4">Equipment Name &amp; Serial</th>
                                 <th class="p-4">Facility</th>
                                 <th class="p-4">Calibration Date</th>
                                 <th class="p-4">Next Due Date</th>
-                                <th class="p-4">Accuracy / Error Margin</th>
+                                <th class="p-4">Accuracy / Remarks</th>
                                 <th class="p-4 text-right">Action</th>
                             </tr>
                         </thead>
-                        <tbody id="calibrationTableBody" class="divide-y divide-slate-100 text-xs"></tbody>
+                        <tbody id="calibrationTableBody" class="divide-y divide-slate-100"></tbody>
                     </table>
                 </div>
             </div>
-        </div>
+        </section>
 
-        <!-- TAB 7: BIOMED TOOL & KIT LOGBOOK -->
-        <div id="tools" class="tab-content space-y-6">
-            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <!-- 7. TOOL & KIT LOGBOOK TAB -->
+        <section id="tools" class="tab-content space-y-5">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                    <h2 class="text-2xl font-bold text-slate-900">Biomed Office Tool &amp; Test Kit Logbook</h2>
-                    <p class="text-sm text-slate-500">Track engineers and staff borrowing diagnostic tools, calibration meters, and service kits from the Biomedical Office.</p>
+                    <h2 class="text-xl sm:text-2xl font-bold text-slate-900">Biomed Office Tool &amp; Test Kit Logbook</h2>
+                    <p class="text-xs sm:text-sm text-slate-500">Track analyzers, multimeters, calibrators, and toolkits borrowed by field engineers.</p>
                 </div>
-                <div class="flex items-center space-x-3">
-                    <button onclick="exportToolLogsCSV()" class="inline-flex items-center justify-center px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 font-medium text-sm shadow-xs transition-all space-x-2">
-                        <i data-lucide="download" class="w-4 h-4"></i>
-                        <span>Export Tool Log CSV</span>
-                    </button>
-                    <button onclick="openBorrowToolModal()" class="inline-flex items-center justify-center px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 font-medium text-sm shadow-sm transition-all space-x-2">
+                <div class="flex items-center space-x-2.5 shrink-0">
+                    <button type="button" onclick="openBorrowToolModal()" class="inline-flex items-center justify-center px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg font-semibold text-xs sm:text-sm shadow-xs transition-all space-x-1.5 cursor-pointer">
                         <i data-lucide="plus" class="w-4 h-4"></i>
                         <span>Borrow Tool / Kit</span>
                     </button>
                 </div>
             </div>
 
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
-                    <div>
-                        <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Total Tool Check-Outs</p>
-                        <h3 id="statToolsTotal" class="text-2xl font-bold text-slate-900 mt-1">0</h3>
-                        <span class="text-xs text-slate-400 mt-1 inline-block">Recorded office log entries</span>
-                    </div>
-                    <div class="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
-                        <i data-lucide="briefcase" class="w-6 h-6"></i>
-                    </div>
-                </div>
-
-                <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
-                    <div>
-                        <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Currently Borrowed (Out)</p>
-                        <h3 id="statToolsOut" class="text-2xl font-bold text-amber-600 mt-1">0</h3>
-                        <span class="text-xs text-amber-600 mt-1 inline-block font-medium">In field / active use</span>
-                    </div>
-                    <div class="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
-                        <i data-lucide="clock" class="w-6 h-6"></i>
-                    </div>
-                </div>
-
-                <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
-                    <div>
-                        <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Returned to Office</p>
-                        <h3 id="statToolsReturned" class="text-2xl font-bold text-emerald-600 mt-1">0</h3>
-                        <span class="text-xs text-emerald-600 mt-1 inline-block font-medium">Verified in Biomed storage</span>
-                    </div>
-                    <div class="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                        <i data-lucide="check-circle-2" class="w-6 h-6"></i>
-                    </div>
-                </div>
+            <div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs flex flex-col sm:flex-row gap-3">
+                <input type="text" id="toolSearchInput" oninput="renderToolLogsTable()" placeholder="Search by engineer name, tool name, or destination hospital..." class="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                <select id="toolStatusFilter" onchange="renderToolLogsTable()" class="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs sm:text-sm font-medium text-slate-700 focus:outline-none">
+                    <option value="">All Tool Statuses</option>
+                    <option value="Borrowed">Currently Borrowed (Out)</option>
+                    <option value="Returned">Returned to Office</option>
+                </select>
             </div>
 
-            <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-4">
-                <div class="relative w-full sm:w-96">
-                    <i data-lucide="search" class="absolute left-3 top-3 w-4 h-4 text-slate-400"></i>
-                    <input type="text" id="toolSearchInput" oninput="renderToolLogsTable()" placeholder="Search by borrower name, tool, destination..." class="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
-                </div>
-                <div class="flex items-center space-x-2">
-                    <select id="toolStatusFilter" onchange="renderToolLogsTable()" class="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
-                        <option value="">All Statuses</option>
-                        <option value="Borrowed">Currently Borrowed</option>
-                        <option value="Returned">Returned to Office</option>
-                    </select>
-                </div>
-            </div>
-
-            <div class="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+            <div class="bg-white rounded-2xl border border-slate-200/80 shadow-2xs overflow-hidden">
                 <div class="overflow-x-auto">
-                    <table class="w-full text-left text-sm">
-                        <thead class="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold text-xs uppercase tracking-wider">
-                            <tr>
-                                <th class="p-4">Borrower Name</th>
-                                <th class="p-4">Tool / Kit Borrowed</th>
-                                <th class="p-4">Hospital / Purpose</th>
-                                <th class="p-4">Date &amp; Time Borrowed</th>
+                    <table class="w-full text-left border-collapse text-xs sm:text-sm">
+                        <thead>
+                            <tr class="bg-slate-50/80 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                                <th class="p-4">Borrower (Engineer)</th>
+                                <th class="p-4">Tool / Kit &amp; ID</th>
+                                <th class="p-4">Destination Hospital &amp; Purpose</th>
+                                <th class="p-4">Date &amp; Time Out</th>
                                 <th class="p-4">Date &amp; Time Returned</th>
                                 <th class="p-4">Status</th>
-                                <th class="p-4 text-right">Action</th>
+                                <th class="p-4 text-right">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="toolLogsTableBody" class="divide-y divide-slate-100"></tbody>
                     </table>
                 </div>
             </div>
-        </div>
+        </section>
 
     </main>
 
-    <!-- ROLE PASSWORD PROMPT MODAL -->
-    <div id="rolePasswordModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
-        <div class="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200">
-            <div class="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
-                <h3 id="rolePasswordPromptTitle" class="font-bold text-slate-900 text-base">Enter Role Password</h3>
-                <button onclick="closeRolePasswordModal()" class="text-slate-400 hover:text-slate-600 p-1 rounded-lg">
-                    <i data-lucide="x" class="w-5 h-5"></i>
-                </button>
-            </div>
-            <form onsubmit="verifyRolePassword(event)" class="space-y-4">
-                <div>
-                    <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Password *</label>
-                    <input type="password" id="rolePasswordInput" required placeholder="Enter password..." class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
-                </div>
-                <div class="flex items-center justify-end space-x-2 pt-2">
-                    <button type="button" onclick="closeRolePasswordModal()" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium text-xs rounded-lg transition-colors">Cancel</button>
-                    <button type="submit" class="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white font-medium text-xs rounded-lg transition-colors">Authenticate</button>
-                </div>
-            </form>
-        </div>
-    </div>
+    <!-- ====================================================================
+         MODALS (Add Equipment, Log PM, Notifications, Cloud DB Settings)
+         ==================================================================== -->
 
-    <!-- MODAL 0: GITHUB API CONFIGURATION MODAL -->
-    <div id="githubConfigModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
-        <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200">
-            <div class="flex items-center justify-between pb-4 border-b border-slate-100">
-                <h3 class="font-bold text-slate-900 text-lg flex items-center space-x-2">
-                    <i data-lucide="git-branch" class="w-5 h-5 text-teal-600"></i>
-                    <span>Seiralab GitHub Database Setup</span>
-                </h3>
-                <button onclick="closeGitHubConfigModal()" class="text-slate-400 hover:text-slate-600 p-1 rounded-lg">
-                    <i data-lucide="x" class="w-5 h-5"></i>
-                </button>
-            </div>
-            <form onsubmit="saveGitHubConfig(event)" class="space-y-4 pt-4">
-                <div>
-                    <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Connection Mode</label>
-                    <select id="ghMode" onchange="toggleGhModeFields()" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
-                        <option value="direct">Direct GitHub REST API (Browser + PAT)</option>
-                        <option value="proxy">Go Backend Proxy Server</option>
-                    </select>
-                </div>
-
-                <div id="directFields" class="space-y-4">
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">GitHub Username *</label>
-                            <input type="text" id="ghOwner" placeholder="e.g., raizon001" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Repository Name *</label>
-                            <input type="text" id="ghRepo" placeholder="e.g., seiralab-cmms-db" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
-                        </div>
-                    </div>
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Branch</label>
-                            <input type="text" id="ghBranch" value="main" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">JSON File Path</label>
-                            <input type="text" id="ghPath" value="data/cmms_db.json" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
-                        </div>
-                    </div>
-                    <div>
-                        <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">GitHub Personal Access Token (PAT) *</label>
-                        <input type="password" id="ghToken" placeholder="github_pat_..." class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
-                        <p class="text-[11px] text-slate-400 mt-1">Encrypted locally in browser. Requires Repository 'Contents: Read and write' permission.</p>
-                    </div>
-                </div>
-
-                <div id="proxyFields" class="hidden space-y-4">
-                    <div>
-                        <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Go Proxy Endpoint URL *</label>
-                        <input type="url" id="ghProxyUrl" value="http://localhost:8080/api/data" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
-                    </div>
-                </div>
-
-                <div class="pt-4 border-t border-slate-100 flex items-center justify-between">
-                    <button type="button" onclick="disconnectGitHub()" class="text-xs font-semibold text-rose-600 hover:underline">Clear Credentials</button>
-                    <div class="space-x-2">
-                        <button type="button" onclick="closeGitHubConfigModal()" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium text-sm rounded-lg transition-colors">Cancel</button>
-                        <button type="submit" class="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white font-medium text-sm rounded-lg transition-colors">Connect &amp; Sync</button>
-                    </div>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <!-- MODAL 1: ADD / EDIT EQUIPMENT -->
-    <div id="equipmentModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
+    <!-- Add Equipment Modal -->
+    <div id="addEquipmentModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
         <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
-            <div class="flex items-center justify-between pb-4 border-b border-slate-100">
-                <h3 id="equipmentModalTitle" class="font-bold text-slate-900 text-lg">Add New Medical Equipment</h3>
-                <button onclick="closeEquipmentModal()" class="text-slate-400 hover:text-slate-600 p-1 rounded-lg">
-                    <i data-lucide="x" class="w-5 h-5"></i>
-                </button>
+            <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+                <h3 id="modalTitle" class="font-bold text-slate-900 text-base">Add New Medical Equipment</h3>
+                <button type="button" onclick="closeAddModal()" class="text-slate-400 hover:text-slate-600 p-1">&times;</button>
             </div>
-            <form id="equipmentForm" onsubmit="saveEquipment(event)" class="space-y-4 pt-4">
-                <input type="hidden" id="editEquipmentId">
-                <div>
-                    <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Equipment Name *</label>
-                    <input type="text" id="eqName" required placeholder="e.g., Sysmex XN-1000 Hematology Analyzer" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
-                </div>
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <form id="equipmentForm" onsubmit="saveEquipment(event)" class="space-y-3.5 pt-4 text-xs sm:text-sm">
+                <input type="hidden" id="eqId">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                     <div>
-                        <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Serial Number *</label>
-                        <input type="text" id="eqSerial" required placeholder="SN-998231" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                        <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Equipment Name *</label>
+                        <input type="text" id="eqName" required placeholder="e.g., Flexor Chemistry Analyzer" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm">
                     </div>
                     <div>
-                        <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Model *</label>
-                        <input type="text" id="eqModel" required placeholder="XN-1000" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                        <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Model *</label>
+                        <input type="text" id="eqModel" required placeholder="e.g., AB-380" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm">
                     </div>
                 </div>
-                <div>
-                    <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Hospital / Laboratory Facility *</label>
-                    <input type="text" id="eqFacility" required placeholder="e.g., Cebu City Medical Center" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
-                </div>
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                     <div>
-                        <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Department *</label>
-                        <select id="eqDepartment" required class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
-                            <option value="ICU">ICU</option>
-                            <option value="Radiology">Radiology</option>
-                            <option value="Emergency">Emergency</option>
-                            <option value="Cardiology">Cardiology</option>
-                            <option value="Surgery">Surgery</option>
-                            <option value="Pathology Lab">Pathology Lab</option>
-                            <option value="Pediatrics">Pediatrics</option>
-                        </select>
+                        <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Serial Number *</label>
+                        <input type="text" id="eqSerial" required placeholder="e.g., AS24B05160" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono">
                     </div>
                     <div>
-                        <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Location Room *</label>
-                        <input type="text" id="eqLocation" required placeholder="Lab Suite A" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                        <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Hospital / Laboratory *</label>
+                        <input type="text" id="eqFacility" required placeholder="e.g., Cebu City Medical Center" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm">
                     </div>
                 </div>
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                     <div>
-                        <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Risk Level *</label>
-                        <select id="eqRisk" required class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
-                            <option value="Critical">Critical</option>
-                            <option value="High">High</option>
-                            <option value="Medium">Medium</option>
-                            <option value="Low">Low</option>
-                        </select>
+                        <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Department *</label>
+                        <input type="text" id="eqDept" required placeholder="e.g., Clinical Chemistry Lab" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm">
                     </div>
                     <div>
-                        <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Status *</label>
-                        <select id="eqStatus" required class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                        <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Location / Region *</label>
+                        <input type="text" id="eqLocation" required placeholder="e.g., CEBU - Clinical Lab" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm">
+                    </div>
+                </div>
+                <div class="hidden">
+                    <select id="eqRisk"><option value="High">High</option></select>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Status *</label>
+                        <select id="eqStatus" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm">
                             <option value="Operational">Operational</option>
-                            <option value="Under Maintenance">Under Maintenance</option>
-                            <option value="Out of Service">Out of Service</option>
+                            <option value="Maintenance Due">Maintenance Due</option>
+                            <option value="Under Repair">Under Repair</option>
+                            <option value="PULL OUT">PULL OUT</option>
                         </select>
                     </div>
                     <div>
-                        <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Next PM Due *</label>
-                        <input type="date" id="eqNextDue" required class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                        <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Installed Date *</label>
+                        <input type="date" id="eqLastPM" required class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm">
                     </div>
                 </div>
-                <div class="pt-4 flex items-center justify-end space-x-3">
-                    <button type="button" onclick="closeEquipmentModal()" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium text-sm rounded-lg transition-colors">Cancel</button>
-                    <button type="submit" class="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white font-medium text-sm rounded-lg transition-colors">Save &amp; Record</button>
+                <div class="hidden">
+                    <input type="date" id="eqNextDue">
+                    <select id="eqInterval"><option value="Semi-Annual (6 Mos)">Semi-Annual (6 Mos)</option></select>
+                </div>
+                <div class="pt-3 flex items-center justify-end space-x-2.5 border-t border-slate-100">
+                    <button type="button" onclick="closeAddModal()" class="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg text-xs font-semibold cursor-pointer">Cancel</button>
+                    <button type="submit" class="px-4 py-2 bg-teal-600 text-white rounded-lg text-xs font-semibold cursor-pointer">Save Equipment</button>
                 </div>
             </form>
         </div>
     </div>
 
-    <!-- MODAL 2: PM CHECKLIST & TASK EXECUTION -->
-    <div id="checklistModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
-        <div class="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
-            <div class="flex items-center justify-between pb-4 border-b border-slate-100">
-                <h3 class="font-bold text-slate-900 text-lg flex items-center space-x-2">
-                    <i data-lucide="clipboard-check" class="w-5 h-5 text-teal-600"></i>
-                    <span>Execute Preventive Maintenance Checklist</span>
-                </h3>
-                <button onclick="closeChecklistModal()" class="text-slate-400 hover:text-slate-600 p-1 rounded-lg">
-                    <i data-lucide="x" class="w-5 h-5"></i>
-                </button>
-            </div>
-            <form id="checklistForm" onsubmit="submitChecklist(event)" class="space-y-4 pt-4">
-                <input type="hidden" id="checkTaskId">
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                        <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Select Equipment *</label>
-                        <select id="checkEquipmentSelect" onchange="loadChecklistTemplate()" required class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"></select>
-                    </div>
-                    <div>
-                        <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Assigned Seiralab Engineer *</label>
-                        <input type="text" id="checkTech" required value="Biomedical Technical Team" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
-                    </div>
-                </div>
-
-                <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
-                    <h4 class="text-xs font-bold uppercase tracking-wider text-slate-600 flex items-center justify-between">
-                        <span>Standard PM Inspection Checklist</span>
-                        <span id="templateTypeBadge" class="px-2 py-0.5 bg-teal-100 text-teal-700 rounded text-[10px]">General Medical Device</span>
-                    </h4>
-                    <div id="checklistItemsContainer" class="space-y-2"></div>
-                </div>
-
-                <div>
-                    <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Service &amp; Calibration Notes *</label>
-                    <textarea id="checkNotes" rows="3" required placeholder="Enter calibration readings, parts replaced, or safety inspection observations..." class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"></textarea>
-                </div>
-
-                <div class="pt-4 flex items-center justify-end space-x-3">
-                    <button type="button" onclick="closeChecklistModal()" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium text-sm rounded-lg transition-colors">Cancel</button>
-                    <button type="submit" class="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white font-medium text-sm rounded-lg transition-colors">Mark Completed &amp; Record to GitHub</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <!-- MODAL 3: NOTIFICATIONS -->
+    <!-- Notification Center Modal -->
     <div id="notificationModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 max-h-[85vh] flex flex-col">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+                <h3 class="font-bold text-slate-900 text-base">System Alerts &amp; Approval Queue</h3>
+                <button type="button" onclick="closeNotificationModal()" class="text-slate-400 hover:text-slate-600 p-1">&times;</button>
+            </div>
+            <div id="notificationList" class="py-3 overflow-y-auto space-y-2 flex-1"></div>
+        </div>
+    </div>
+
+    <!-- GitHub / Cloud Database Config Modal -->
+    <div id="githubConfigModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
         <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
-            <div class="flex items-center justify-between pb-4 border-b border-slate-100">
-                <h3 class="font-bold text-slate-900 text-lg flex items-center space-x-2">
-                    <i data-lucide="bell" class="w-5 h-5 text-teal-600"></i>
-                    <span>System Alerts &amp; Notifications</span>
-                </h3>
-                <button onclick="closeNotificationModal()" class="text-slate-400 hover:text-slate-600 p-1 rounded-lg">
-                    <i data-lucide="x" class="w-5 h-5"></i>
-                </button>
+            <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+                <h3 class="font-bold text-slate-900 text-base">Cloud Database Sync Settings</h3>
+                <button type="button" onclick="closeGitHubModal()" class="text-slate-400 hover:text-slate-600 p-1">&times;</button>
             </div>
-            <div class="py-4 space-y-3 max-h-80 overflow-y-auto" id="notificationList"></div>
-            <div class="pt-2 border-t border-slate-100 flex justify-end">
-                <button onclick="closeNotificationModal()" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium text-sm rounded-lg transition-colors">Close</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- FULL-SCREEN ATLAS LOGIN PORTAL (HTML SEPARATED FROM JS) -->
-    <div id="seiralabLoginPortal" class="fixed inset-0 z-[100] bg-slate-950 flex flex-col justify-between overflow-hidden select-none">
-        <!-- Interactive HTML5 Canvas Live Wallpaper -->
-        <canvas id="liveWallpaperCanvas" class="absolute inset-0 w-full h-full pointer-events-none"></canvas>
-
-        <!-- Top-Left Seiralab Banner Logo -->
-        <div class="relative z-10 p-5 sm:p-8 flex items-center justify-start">
-            <div class="bg-white/95 backdrop-blur-md px-4 py-2 rounded-2xl shadow-xl border border-white/20 inline-flex items-center space-x-3">
-                <img src="./seiralab-logo.gIH9ySyn.jpg" 
-                     alt="Seiralab Incorporated" 
-                     class="h-10 sm:h-12 w-auto object-contain"
-                     onerror="this.onerror=null; this.src='./seiralab-logo.jpg';">
-            </div>
-        </div>
-
-        <!-- Center ATLAS Login Card -->
-        <div class="relative z-10 flex-1 flex items-center justify-center px-4 py-6">
-            <div class="w-full max-w-md bg-slate-900/80 backdrop-blur-xl border border-teal-500/30 rounded-3xl p-8 shadow-2xl text-center relative overflow-hidden">
-                <div class="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-emerald-500 via-yellow-400 to-teal-500"></div>
-
-                <!-- Biomedical Technical Team Emblem -->
-                <div class="w-28 h-28 sm:w-32 sm:h-32 mx-auto mb-5 rounded-full p-1 bg-gradient-to-tr from-emerald-500 via-teal-400 to-yellow-400 shadow-xl">
-                    <div class="w-full h-full rounded-full overflow-hidden bg-white flex items-center justify-center">
-                        <img src="./team.png.jpg" 
-                             alt="Biomedical Technical Team" 
-                             class="w-full h-full object-cover"
-                             onerror="this.onerror=null; this.src='./team.png';">
+            <form onsubmit="saveGitHubConfig(event)" class="space-y-3 pt-4 text-xs">
+                <div>
+                    <label class="block font-semibold text-slate-700 uppercase mb-1">Cloudflare Worker Proxy Endpoint</label>
+                    <input type="text" id="ghProxyUrl" value="/api/data" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 font-mono">
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block font-semibold text-slate-700 uppercase mb-1">Repo Owner</label>
+                        <input type="text" id="ghOwner" value="raizon001" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                    </div>
+                    <div>
+                        <label class="block font-semibold text-slate-700 uppercase mb-1">Repo Name</label>
+                        <input type="text" id="ghRepo" value="seiralab-cmms-db" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
                     </div>
                 </div>
-
-                <h2 class="text-xl font-bold text-white tracking-tight">ATLAS</h2>
-                <p class="text-xs text-slate-400 mt-1 mb-6">Select your access role and enter your authorization password</p>
-
-                <form onsubmit="submitPortalLogin(event)" class="space-y-5 text-left">
+                <div class="grid grid-cols-2 gap-3">
                     <div>
-                        <select id="portalRoleSelect" class="w-full bg-slate-950/90 border-2 border-slate-700 focus:border-teal-400 text-white font-semibold text-sm rounded-xl px-4 py-3.5 text-center focus:outline-none transition-colors cursor-pointer shadow-inner">
-                            <option value="Technical">Technical</option>
-                            <option value="MasterAdmin">Admin (MasterAdmin)</option>
-                            <option value="Head Technical">Head (Head Technical)</option>
-                        </select>
-                        <label class="block text-center text-xs font-bold uppercase tracking-widest text-teal-400 mt-1.5">Login</label>
-                    </div>
-
-                    <div id="portalPasswordContainer">
-                        <input type="password" id="portalPasswordInput" required placeholder="••••••••••••" class="w-full bg-slate-950/90 border-2 border-slate-700 focus:border-teal-400 text-white font-mono text-center text-base rounded-xl px-4 py-3 focus:outline-none transition-colors shadow-inner">
-                        <label class="block text-center text-xs font-bold uppercase tracking-widest text-teal-400 mt-1.5">Password</label>
-                    </div>
-
-                    <p id="portalLoginError" class="hidden text-xs font-semibold text-rose-400 text-center bg-rose-950/60 border border-rose-500/40 rounded-lg py-2 px-3"></p>
-
-                    <button type="submit" class="w-full py-3.5 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 text-white font-bold text-sm rounded-xl shadow-lg shadow-teal-900/50 transition-all transform active:scale-[0.99] cursor-pointer">
-                        Enter Seiralab System
-                    </button>
-                </form>
-
-                <div class="mt-6 pt-4 border-t border-slate-800 flex items-center justify-center text-xs">
-                    <button type="button" onclick="loginAsVisitor()" class="text-yellow-400 hover:text-yellow-300 font-semibold underline cursor-pointer">
-                        Continue as Visitor (View Only) &rarr;
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Bottom Footer -->
-        <div class="relative z-10 px-6 py-3 text-xs text-slate-500 flex items-center justify-start max-w-7xl w-full mx-auto">
-            <span>Seiralab Incorporated &bull; Diagnostic &amp; Medical Equipment</span>
-        </div>
-    </div>
-
-    <!-- MODAL 5: ADD CALIBRATION REPORT MODAL -->
-    <div id="addCalibrationModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
-        <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
-            <div class="flex items-center justify-between pb-4 border-b border-slate-100">
-                <h3 class="font-bold text-slate-900 text-lg flex items-center space-x-2">
-                    <i data-lucide="file-check-2" class="w-5 h-5 text-teal-600"></i>
-                    <span>Add Calibration Report</span>
-                </h3>
-                <button type="button" onclick="closeAddCalibrationModal()" class="text-slate-400 hover:text-slate-600 p-1 rounded-lg">
-                    <i data-lucide="x" class="w-5 h-5"></i>
-                </button>
-            </div>
-            <form id="addCalibrationForm" onsubmit="saveCalibrationReport(event)" class="space-y-4 pt-4">
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                        <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Certificate ID *</label>
-                        <input type="text" id="calCertId" required placeholder="e.g., CERT-2026-9001" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                        <label class="block font-semibold text-slate-700 uppercase mb-1">Branch</label>
+                        <input type="text" id="ghBranch" value="main" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
                     </div>
                     <div>
-                        <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Serial Number *</label>
-                        <input type="text" id="calSerial" required placeholder="e.g., AS24B05160" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                        <label class="block font-semibold text-slate-700 uppercase mb-1">DB File Path</label>
+                        <input type="text" id="ghPath" value="data/cmms_db.json" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 font-mono">
                     </div>
                 </div>
                 <div>
-                    <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Equipment Name &amp; Model *</label>
-                    <input type="text" id="calEqName" required placeholder="e.g., Flexor Chemistry Analyzer (AB-380)" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                    <label class="block font-semibold text-slate-700 uppercase mb-1">GitHub Personal Access Token (Optional Direct Sync)</label>
+                    <input type="password" id="ghToken" placeholder="github_pat_..." class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 font-mono">
                 </div>
-                <div>
-                    <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Hospital / Laboratory Facility *</label>
-                    <input type="text" id="calFacility" required placeholder="e.g., Cebu City Medical Center" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
-                </div>
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                        <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Calibration Date *</label>
-                        <input type="date" id="calDate" required class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Next Due Date *</label>
-                        <input type="date" id="calNextDue" required class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
-                    </div>
-                </div>
-                <div>
-                    <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Accuracy / Error Margin Result *</label>
-                    <input type="text" id="calAccuracy" required placeholder="e.g., ± 0.5% Absorbance (Pass)" value="± 0.5% Tolerance (Pass)" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
-                </div>
-                <div class="pt-4 flex items-center justify-end space-x-3">
-                    <button type="button" onclick="closeAddCalibrationModal()" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium text-sm rounded-lg transition-colors">Cancel</button>
-                    <button type="submit" class="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white font-medium text-sm rounded-lg transition-colors">Save Calibration Report</button>
+                <div class="pt-3 flex items-center justify-end space-x-2">
+                    <button type="button" onclick="closeGitHubModal()" class="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg font-semibold cursor-pointer">Cancel</button>
+                    <button type="submit" class="px-4 py-2 bg-teal-600 text-white rounded-lg font-semibold cursor-pointer">Save &amp; Sync</button>
                 </div>
             </form>
         </div>
     </div>
 
-    <!-- Footer -->
-    <footer class="bg-white border-t border-slate-200 mt-auto py-6">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-4">
-            <p>&copy; 2026 Seiralab Incorporated. Diagnostic &amp; Medical Equipment Preventive Maintenance System.</p>
-            <div class="flex items-center space-x-6">
-                <a href="#" class="hover:text-teal-600 transition-colors">JCAHO Standards</a>
-                <a href="#" class="hover:text-teal-600 transition-colors">ISO 13485 Guidelines</a>
-                <a href="#" class="hover:text-teal-600 transition-colors">Seiralab Support</a>
-            </div>
-        </div>
-    </footer>
+    <!-- Toast Notification Banner -->
+    <div id="toastBanner" class="fixed bottom-5 right-5 z-[140] hidden bg-slate-900 text-white px-4 py-3 rounded-xl shadow-xl border border-slate-700 text-xs font-semibold flex items-center space-x-2.5">
+        <span id="toastMessage">Action completed</span>
+    </div>
 
-  <!-- Modular JavaScript Files -->
-    <script src="./github-db.js"></script>
-    <script src="./app.js"></script>
-    <script src="./login-portal.js"></script>
-    <script src="./features.js"></script>
+    <!-- ====================================================================
+         SMART SCRIPT LOADER
+         Loads single obfuscated ./atlas.min.js in production (hiding raw files),
+         or falls back to the 4 local files if testing unbundled in Codespaces.
+         ==================================================================== -->
+    <script>
+        (function loadAtlasScripts() {
+            var bundleScript = document.createElement('script');
+            bundleScript.src = './atlas.min.js';
+            bundleScript.onerror = function () {
+                // Fallback if atlas.min.js hasn't been built yet in local dev
+                var files = ['./github-db.js', './app.js', './login-portal.js', './features.js'];
+                files.reduce(function (p, src) {
+                    return p.then(function () {
+                        return new Promise(function (resolve) {
+                            var s = document.createElement('script');
+                            s.src = src;
+                            s.onload = resolve;
+                            s.onerror = resolve;
+                            document.body.appendChild(s);
+                        });
+                    });
+                }, Promise.resolve());
+            };
+            document.body.appendChild(bundleScript);
+        })();
+    </script>
 </body>
 </html>
