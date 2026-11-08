@@ -111,7 +111,31 @@
             }
         });
     }
+// Safe bridge so app.js renderDashboard() never throws "Cannot set properties of null (setting 'innerText')"
+function ensureLegacyDashboardIdsExist() {
+    const requiredIds = [
+        'statTotal', 'statTotalAssets', 'statOperational', 'statDue', 'statDueSoon',
+        'statOverdue', 'statCritical', 'statComplianceRate', 'statCalTotal', 'statCalDue',
+        'statToolsTotal', 'statToolsOut', 'statToolsReturned'
+    ];
+    let hiddenHolder = document.getElementById('legacyStatFallbackHolder');
+    if (!hiddenHolder && document.body) {
+        hiddenHolder = document.createElement('div');
+        hiddenHolder.id = 'legacyStatFallbackHolder';
+        hiddenHolder.className = 'hidden';
+        document.body.appendChild(hiddenHolder);
+    }
+    if (!hiddenHolder) return;
 
+    requiredIds.forEach(id => {
+        if (!document.getElementById(id)) {
+            const span = document.createElement('span');
+            span.id = id;
+            hiddenHolder.appendChild(span);
+        }
+    });
+}
+ensureLegacyDashboardIdsExist();
     // ========================================================================
     // 0. SELF-HEALING MODALS
     // ========================================================================
