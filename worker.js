@@ -255,6 +255,45 @@ export default {
       status: response.status,
       statusText: response.statusText,
       headers: securedHeaders
+
+
+      // Add this route block inside your main fetch handler in worker.js:
+
+if (path === "/api/login" && request.method === "POST") {
+    try {
+        const { role, password } = await request.json();
+
+        // Pull passwords from Cloudflare Worker Environment Secrets (configured in dashboard)
+        // Defaults are provided as fallback if secrets aren't set yet
+        const techPass = env.TECH_PASSWORD || "seiralabtech2026";
+        const headPass = env.HEAD_PASSWORD || "seiralabhead2026";
+        const adminPass = env.ADMIN_PASSWORD || "seiralabadmin2026";
+
+        let isAuthenticated = false;
+        if (role === "Technical" && password === techPass) isAuthenticated = true;
+        if (role === "Head Technical" && password === headPass) isAuthenticated = true;
+        if (role === "MasterAdmin" && password === adminPass) isAuthenticated = true;
+
+        if (isAuthenticated) {
+            // Generate a secure session token
+            const sessionToken = "sli_sess_" + Math.random().toString(36).substring(2) + Date.now().toString(36);
+            return new Response(JSON.stringify({ success: true, token: sessionToken }), {
+                status: 200,
+                headers: { "Content-Type": "application/json" }
+            });
+        } else {
+            return new Response(JSON.stringify({ success: false, error: "Invalid role or authorization password." }), {
+                status: 401,
+                headers: { "Content-Type": "application/json" }
+            });
+        }
+    } catch (err) {
+        return new Response(JSON.stringify({ success: false, error: "Invalid JSON payload." }), {
+            status: 400,
+            headers: { "Content-Type": "application/json" }
+        });
+    }
+}
     });
   }
 };
