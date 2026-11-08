@@ -920,18 +920,628 @@
         buildSystemNotifications();
     }
 
-    // ========================================================================
-    // 4. MULTI-SHEET EXCEL (.XLS / .XLSX) IMPORTER (FIXED FOR installation.xls)
+  // ========================================================================
+    // 4. EXACT installation.xls PARSER + AUTO-REPAIR SCRAMBLED DATA + SEARCH FIX
+    // Maps: Col 0=ACCOUNTNAME, Col 1=DESC, Col 2=MFG, Col 3=MODEL, Col 4=SN, Col 5=INSTALL DATE
     // ========================================================================
     function ensureSheetJSLoaded() {
         return new Promise((resolve, reject) => {
             if (window.XLSX) return resolve(window.XLSX);
+            const existing = document.getElementById('sheetjs-cdn-script');
+            if (existing) {
+                existing.addEventListener('load', () => resolve(window.XLSX));
+                return;
+            }
             const script = document.createElement('script');
             script.id = 'sheetjs-cdn-script';
             script.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
             script.onload = () => resolve(window.XLSX);
             script.onerror = () => reject(new Error('Failed to load SheetJS'));
             document.head.appendChild(script);
+        });
+    }
+
+    // Known Model -> { desc, mfg, region } lookup to auto-heal already-scrambled rows in localStorage
+    const MODEL_REPAIR_DICTIONARY = {
+        's12': { name: 'Biolight Patient Monitor', dept: 'ICU / Patient Monitoring', region: 'ILOILO' },
+        'q5': { name: 'Biolight Patient Monitor', dept: 'ICU / Patient Monitoring', region: 'ILOILO' },
+        'e65': { name: 'Biolight ECG Monitor', dept: 'Cardiology / Diagnostics', region: 'CEBU' },
+        'boaray700d': { name: 'Prunus Anesthesia Machine', dept: 'Operating Room / Anesthesia', region: 'ILOILO' },
+        'boaray700': { name: 'Prunus Anesthesia Machine', dept: 'Operating Room / Anesthesia', region: 'SOCCSKSARGEN' },
+        'dm7000': { name: 'M&B Defibrillator', dept: 'Emergency / Critical Care', region: 'ILOILO' },
+        'as380': { name: 'Bioelab Chemistry Analyzer', dept: 'Clinical Chemistry Lab', region: 'VISAYAS' },
+        'ab380': { name: 'Flexor Chemistry Analyzer', dept: 'Clinical Chemistry Lab', region: 'CEBU' },
+        'ab480': { name: 'Flexor Chemistry Analyzer', dept: 'Clinical Chemistry Lab', region: 'CEBU' },
+        'as280': { name: 'Flexor Chemistry Analyzer', dept: 'Clinical Chemistry Lab', region: 'BUKIDNON' },
+        'abh650': { name: 'Alexis Hematology Analyzer', dept: 'Hematology Section', region: 'SOCCSKSARGEN' },
+        'abh630': { name: 'Alexis Hematology Analyzer', dept: 'Hematology Section', region: 'DAVAO' },
+        'abh530plus': { name: 'Alexis Hematology Analyzer', dept: 'Hematology Section', region: 'CEBU' },
+        'rd171': { name: 'Horron Semi-Auto Chemistry Analyzer', dept: 'Clinical Chemistry Lab', region: 'SOCCSKSARGEN' },
+        'h900': { name: 'Horron Electrolyte Analyzer', dept: 'Clinical Pathology Lab', region: 'MINDANAO' },
+        'rt9200': { name: 'Rayto Chemistry Analyzer', dept: 'Clinical Chemistry Lab', region: 'SOCCSKSARGEN' },
+        'bc5000': { name: 'Mindray Hematology Analyzer', dept: 'Hematology Section', region: 'SOCCSKSARGEN' },
+        'cx23': { name: 'Olympus Biological Microscope', dept: 'Clinical Microscopy', region: 'SOCCSKSARGEN' },
+        'cx21': { name: 'Olympus Biological Microscope', dept: 'Clinical Microscopy', region: 'MINDANAO' },
+        'dgt23a': { name: 'Dengguan Autoclave Sterilizer', dept: 'Central Sterilization', region: 'VISAYAS' },
+        'tgm12': { name: 'Yingtai Hematocrit Centrifuge', dept: 'Hematology Section', region: 'VISAYAS' },
+        'mpc5v226': { name: 'Anhui Pharmacy Refrigerator', dept: 'Pharmacy / Blood Bank', region: 'VISAYAS' },
+        'ihopers300': { name: 'Resvent Mechanical Ventilator', dept: 'ICU / Respiratory Care', region: 'SOCCSKSARGEN' },
+        'msl06': { name: 'Iray Flat Panel Detector', dept: 'Radiology / X-Ray', region: 'SOCCSKSARGEN' },
+        'pld6500e': { name: 'Perlove X-Ray Machine', dept: 'Radiology / X-Ray', region: 'SOCCSKSARGEN' },
+        'pld5600a': { name: 'Perlove X-Ray Machine', dept: 'Radiology / X-Ray', region: 'SOCCSKSARGEN' },
+        'mft1000': { name: 'Fluorecare Immunoassay Analyzer', dept: 'Immunology / Serology', region: 'CEBU' },
+        'ls1100': { name: 'Lansion Bio Immunoassay Analyzer', dept: 'Immunology / Serology', region: 'MAGUINDANAO' },
+        'agd2260': { name: 'AGD Biomedicals Chemistry Analyzer', dept: 'Clinical Chemistry Lab', region: 'ILOILO' },
+        'agd2020': { name: 'AGD Biomedicals Semi-Auto Chemistry', dept: 'Clinical Chemistry Lab', region: 'DAVAO' },
+        'en102': { name: 'Eaglenos Blood Gas Analyzer', dept: 'ICU / Respiratory Care', region: 'CEBU' },
+        'bga102': { name: 'Wondfo Blood Gas Analyzer', dept: 'ICU / Respiratory Care', region: 'CEBU' }
+    };
+
+    const EQUIPMENT_KEYWORDS = [
+        'analyzer', 'centrifuge', 'microscope', 'monitor', 'ventilator', 'anesthesia',
+        'defibrillator', 'autoclave', 'refrigerator', 'incubator', 'x-ray', 'xray',
+        'ultrasound', 'spirometer', 'suction', 'light', 'detector', 'hplc', 'coagulation',
+        'electrolyte', 'chemistry', 'hematology', 'immunoassay', 'generator', 'pipette',
+        'sterilizer', 'water bath', 'rotator', 'shaker', 'freezer', 'machine', 'system'
+    ];
+
+    const FACILITY_KEYWORDS = [
+        'hospital', 'medical', 'clinic', 'diagnostic', 'laboratory', 'lab', 'health',
+        'center', 'sanitarium', 'rhu', 'infirmary', 'doctors', 'provincial', 'district',
+        'memorial', 'city health', 'super health', 'cupsi', 'ipho', 'avmsci', 'scdl', 'genlab'
+    ];
+
+    function looksLikeHospitalOrLabName(text) {
+        const t = String(text || '').toLowerCase();
+        if (!t) return false;
+        const hasEquipWord = EQUIPMENT_KEYWORDS.some(k => t.includes(k));
+        if (hasEquipWord) return false;
+        return FACILITY_KEYWORDS.some(k => t.includes(k));
+    }
+
+    function inferDepartmentFromEquipmentText(text, model) {
+        const p = `${text || ''} ${model || ''}`.toLowerCase();
+        if (p.includes('hematology') || p.includes('hematocrit') || p.includes('coagulation')) return 'Hematology Section';
+        if (p.includes('chemistry') || p.includes('electrolyte') || p.includes('urine') || p.includes('hplc') || p.includes('a1c')) return 'Clinical Chemistry Lab';
+        if (p.includes('immunoassay') || p.includes('elisa')) return 'Immunology / Serology';
+        if (p.includes('blood gas') || p.includes('ventilator') || p.includes('highflow') || p.includes('oxygen') || p.includes('spirometer')) return 'ICU / Respiratory Care';
+        if (p.includes('anesthesia') || p.includes('or light') || p.includes('suction')) return 'Operating Room';
+        if (p.includes('defibrillator') || p.includes('patient monitor') || p.includes('ecg')) return 'ICU / Emergency Care';
+        if (p.includes('x-ray') || p.includes('xray') || p.includes('detector') || p.includes('ultrasound')) return 'Radiology & Imaging';
+        if (p.includes('microscope')) return 'Clinical Microscopy';
+        if (p.includes('refrigerator') || p.includes('blood bank') || p.includes('incubator') || p.includes('card')) return 'Blood Bank / Pharmacy';
+        if (p.includes('autoclave') || p.includes('sterilizer')) return 'Central Sterilization';
+        return 'Clinical Laboratory';
+    }
+
+    // Automatically repair any scrambled records currently in localStorage / Cloud DB
+    function autoRepairScrambledInventoryData() {
+        let list = window.equipmentList;
+        try {
+            const stored = JSON.parse(localStorage.getItem('seiralab_equipment') || 'null');
+            if (Array.isArray(stored) && stored.length > 0) list = stored;
+        } catch (_) {}
+
+        if (!Array.isArray(list) || list.length === 0) return;
+
+        let repairedCount = 0;
+
+        list.forEach(item => {
+            const rawName = String(item.name || '').trim();
+            const rawModel = String(item.model || '').trim();
+            const rawFacility = String(item.facility || '').trim();
+            const modelKey = rawModel.toLowerCase().replace(/[^a-z0-9]/g, '');
+            const repairInfo = MODEL_REPAIR_DICTIONARY[modelKey];
+
+            // Detect if item.name is actually a Hospital/Facility name (e.g. "Dr. Ricardo Y. Ladrido Memorial Hospital", "Super Health Maasin", "Lambayong District Hospital")
+            const isScrambledRow =
+                looksLikeHospitalOrLabName(rawName) ||
+                (rawFacility === 'Cebu City Medical Center' && !rawName.toLowerCase().includes('flexor') && !rawName.toLowerCase().includes('alexis') && !rawName.toLowerCase().includes('eaglenos') && !rawName.toLowerCase().includes('biolight') && repairInfo);
+
+            if (isScrambledRow && rawName) {
+                // Move the hospital name from item.name -> item.facility!
+                item.facility = rawName;
+
+                if (repairInfo) {
+                    item.name = repairInfo.name;
+                    item.department = repairInfo.dept;
+                    item.dept = repairInfo.dept;
+                    item.location = `${repairInfo.region} — ${item.facility}`;
+                } else {
+                    item.name = rawModel && rawModel !== 'Standard' ? `Medical Analyzer (${rawModel})` : 'Medical Diagnostic Equipment';
+                    const dept = inferDepartmentFromEquipmentText(item.name, rawModel);
+                    item.department = dept;
+                    item.dept = dept;
+                    item.location = item.facility;
+                }
+                repairedCount++;
+            }
+
+            // Guarantee department & location are never "undefined"
+            const validDept = (item.department && item.department !== 'undefined')
+                ? item.department
+                : ((item.dept && item.dept !== 'undefined') ? item.dept : inferDepartmentFromEquipmentText(item.name, item.model));
+            item.department = validDept;
+            item.dept = validDept;
+
+            if (!item.location || item.location.includes('undefined') || (item.location === 'CEBU - Clinical Lab' && !item.facility.toLowerCase().includes('cebu'))) {
+                item.location = item.region ? `${item.region} — ${validDept}` : `${validDept}`;
+            }
+        });
+
+        window.equipmentList = list;
+        try { if (typeof equipmentList !== 'undefined') equipmentList = list; } catch (_) {}
+
+        if (repairedCount > 0) {
+            localStorage.setItem('seiralab_equipment', JSON.stringify(list));
+        }
+    }
+
+    function parseFlexibleInstallDate(val) {
+        if (val !== undefined && val !== null && val !== '') {
+            if (typeof val === 'number' && val > 20000 && val < 80000) {
+                const utcDays = Math.floor(val - 25569);
+                const d = new Date(utcDays * 86400 * 1000);
+                if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
+            }
+            if (val instanceof Date && !isNaN(val.getTime())) {
+                return val.toISOString().split('T')[0];
+            }
+            const str = String(val).trim().replace(/\s+/g, ' ').replace(/,(\d{4})/, ', $1');
+            if (str && str.toUpperCase() !== 'N/A' && str.toUpperCase() !== 'NAT' && str !== '-') {
+                const parsed = new Date(str);
+                if (!isNaN(parsed.getTime()) && parsed.getFullYear() >= 1995 && parsed.getFullYear() <= 2035) {
+                    return parsed.toISOString().split('T')[0];
+                }
+            }
+        }
+        return new Date().toISOString().split('T')[0];
+    }
+
+    function computeNextPMFromInstall(installDateStr) {
+        const base = new Date(installDateStr);
+        const next = isNaN(base.getTime()) ? new Date() : new Date(base);
+        next.setMonth(next.getMonth() + 6);
+        const cutoff = new Date();
+        cutoff.setMonth(cutoff.getMonth() - 2);
+        while (next < cutoff) {
+            next.setMonth(next.getMonth() + 6);
+        }
+        return next.toISOString().split('T')[0];
+    }
+
+    function normalizeSnForDedup(sn) {
+        const clean = String(sn || '').trim().toLowerCase().replace(/[\s\-_]/g, '');
+        if (!clean || clean === 'na' || clean === 'n/a' || clean === 'nan' || clean === 'none' || clean.startsWith('sn') || clean.startsWith('sli')) {
+            return '';
+        }
+        return clean;
+    }
+
+    // Parse any worksheet from installation.xls (Col 0: ACCOUNTNAME, Col 1: DESC, Col 2: MFG, Col 3: MODEL, Col 4: SN, Col 5: INSTALL DATE, Col 6: STATUS)
+    function parseWorksheetToEquipment(worksheet, sheetName, XLSX) {
+        const matrix = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+        if (!matrix || matrix.length < 2) return [];
+
+        // Locate header row in first 10 rows
+        let headerRowIdx = 0;
+        for (let r = 0; r < Math.min(matrix.length, 10); r++) {
+            const rowStr = (matrix[r] || []).slice(0, 10).map(c => String(c).trim().toLowerCase()).join(' | ');
+            if ((rowStr.includes('account') || rowStr.includes('hospital') || rowStr.includes('facility')) &&
+                (rowStr.includes('desc') || rowStr.includes('model') || rowStr.includes('mfg') || rowStr.includes('serial') || rowStr.includes('sn'))) {
+                headerRowIdx = r;
+                break;
+            }
+        }
+
+        const headers = (matrix[headerRowIdx] || []).slice(0, 15).map(h =>
+            String(h || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '')
+        );
+
+        const findExactOrPartial = (exactArr, partialArr, defaultIdx) => {
+            for (const ex of exactArr) {
+                const i = headers.indexOf(ex);
+                if (i !== -1) return i;
+            }
+            for (const p of partialArr) {
+                const i = headers.findIndex(h => h.includes(p));
+                if (i !== -1) return i;
+            }
+            return defaultIdx;
+        };
+
+        // Exact mapping for installation.xls:
+        // Col 0 = ACCOUNTNAME, Col 1 = DESC, Col 2 = MFG, Col 3 = MODEL, Col 4 = SN, Col 5 = INSTALL DATE, Col 6 = STATUS
+        const colAccount = findExactOrPartial(['accountname', 'hospital', 'facility', 'client'], ['account', 'hospital', 'facility'], 0);
+        const colDesc    = findExactOrPartial(['desc', 'description', 'producttype', 'equipmentname', 'equipment'], ['desc', 'producttype', 'equipment'], 1);
+        const colMfg     = findExactOrPartial(['mfg', 'brand', 'manufacturer', 'make'], ['mfg', 'brand', 'maker'], 2);
+        const colModel   = findExactOrPartial(['model', 'modelno'], ['model'], 3);
+        const colSn      = findExactOrPartial(['sn', 'serialno', 'serialnumber', 'serial'], ['serial', 'sn'], 4);
+        const colDate    = findExactOrPartial(['installdate', 'dateinstalled', 'lastpm'], ['install', 'lastpm', 'date'], 5);
+        const colStatus  = findExactOrPartial(['status', 'condition'], ['status'], 6);
+
+        const regionLabel = (sheetName === 'Sheet1' || sheetName === 'Sheet2') ? '' : sheetName.toUpperCase();
+        const extracted = [];
+        let lastFacility = '';
+
+        for (let r = headerRowIdx + 1; r < matrix.length; r++) {
+            const row = matrix[r] || [];
+            // Only inspect first 8 columns (ignores the 250 empty columns in Sheet1)
+            const firstCols = row.slice(0, 8).map(c => String(c ?? '').trim());
+            if (firstCols.filter(Boolean).length < 2) continue;
+
+            let accountName = String(row[colAccount] ?? '').trim();
+            const desc      = String(row[colDesc] ?? '').trim();
+            const mfg       = String(row[colMfg] ?? '').trim();
+            const model     = String(row[colModel] ?? '').trim();
+            const rawSn     = String(row[colSn] ?? '').trim();
+            const rawDate   = row[colDate];
+            const rawStatus = colStatus !== -1 ? String(row[colStatus] ?? '').trim() : '';
+
+            if (accountName.toLowerCase().includes('account') && desc.toLowerCase().includes('desc')) continue;
+            if (!accountName && !desc && !model && !mfg) continue;
+
+            if (accountName) {
+                lastFacility = accountName;
+            } else if (lastFacility && (desc || model || mfg)) {
+                accountName = lastFacility;
+            }
+
+            if (!accountName && !desc && !model) continue;
+
+            // Combine Manufacturer (MFG) + Description (DESC) for a crystal-clear Equipment Name
+            // e.g., MFG="Biolight" + DESC="Patient Monitor" -> "Biolight Patient Monitor"
+            const cleanMfg = (mfg && mfg.toUpperCase() !== 'NAN' && mfg.toUpperCase() !== 'N/A') ? mfg : '';
+            const cleanDesc = (desc && desc.toUpperCase() !== 'NAN' && desc.toUpperCase() !== 'N/A') ? desc : '';
+            const cleanModel = (model && model.toUpperCase() !== 'NAN' && model.toUpperCase() !== 'N/A') ? model : (cleanMfg || 'Standard');
+
+            let equipmentName = '';
+            if (cleanMfg && cleanDesc) {
+                equipmentName = cleanDesc.toLowerCase().includes(cleanMfg.toLowerCase())
+                    ? cleanDesc
+                    : `${cleanMfg} ${cleanDesc}`;
+            } else {
+                equipmentName = cleanDesc || cleanMfg || cleanModel || 'Medical Diagnostic Equipment';
+            }
+
+            const department = inferDepartmentFromEquipmentText(equipmentName, cleanModel);
+            const lastPM = parseFlexibleInstallDate(rawDate);
+            const nextDue = computeNextPMFromInstall(lastPM);
+
+            let status = 'Operational';
+            const stLow = rawStatus.toLowerCase();
+            if (stLow.includes('defective') || stLow.includes('not functional') || stLow.includes('repair')) {
+                status = 'Under Repair';
+            } else if (stLow.includes('pullout') || stLow.includes('decom')) {
+                status = 'Decommissioned';
+            }
+
+            const hasValidSn = rawSn && rawSn.toUpperCase() !== 'N/A' && rawSn.toUpperCase() !== 'NAN' && rawSn !== '-';
+            const serial = hasValidSn
+                ? rawSn
+                : `SLI-${cleanModel.replace(/[^A-Za-z0-9]/g, '') || 'EQ'}-${String(r).padStart(3, '0')}`;
+
+            const locationText = regionLabel
+                ? `${regionLabel} — ${department}`
+                : `${department}`;
+
+            extracted.push({
+                id: Date.now() + r + Math.floor(Math.random() * 100000),
+                name: equipmentName,
+                desc: cleanDesc,
+                mfg: cleanMfg,
+                model: cleanModel,
+                serial: serial,
+                facility: accountName || 'Client Medical Facility',
+                department: department,
+                dept: department,
+                region: regionLabel,
+                location: locationText,
+                risk: 'High',
+                status: status,
+                lastPM: lastPM,
+                nextDue: nextDue,
+                interval: 'Semi-Annual (6 Mos)'
+            });
+        }
+
+        return extracted;
+    }
+
+    async function handleAssetDataFileImport(event) {
+        const file = event.target.files?.[0];
+        if (!file) return;
+
+        try {
+            const XLSX = await ensureSheetJSLoaded();
+            const arrayBuffer = await file.arrayBuffer();
+            const workbook = XLSX.read(arrayBuffer, { type: 'array', cellDates: true });
+
+            // Parse regional sheets FIRST so regional tags (DAVAO, SOCCSKSARGEN, MAGUINDANAO, ILOILO, CEBU, etc.) are captured,
+            // then parse Sheet1 to add any extra hospitals (like Super Health, Dr. Ladrido, Sultan Kudarat, Lambayong) not in regional tabs!
+            const regionalSheets = workbook.SheetNames.filter(n => !/^sheet\d+$/i.test(n.trim()));
+            const genericSheets = workbook.SheetNames.filter(n => /^sheet\d+$/i.test(n.trim()));
+            const orderedSheets = [...regionalSheets, ...genericSheets];
+
+            const dedupMap = new Map();
+            let noSnCounter = 0;
+
+            orderedSheets.forEach(sheetName => {
+                const ws = workbook.Sheets[sheetName];
+                if (!ws) return;
+                const items = parseWorksheetToEquipment(ws, sheetName.trim(), XLSX);
+
+                items.forEach(item => {
+                    const snKey = normalizeSnForDedup(item.serial);
+                    const facKey = item.facility.toLowerCase().replace(/[^a-z0-9]/g, '');
+                    const modKey = item.model.toLowerCase().replace(/[^a-z0-9]/g, '');
+                    const descKey = item.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+                    if (snKey) {
+                        const key = `sn:${snKey}`;
+                        if (!dedupMap.has(key)) {
+                            dedupMap.set(key, item);
+                        } else if (item.region && !dedupMap.get(key).region) {
+                            dedupMap.get(key).region = item.region;
+                            dedupMap.get(key).location = item.location;
+                        }
+                    } else {
+                        // For items with N/A serial numbers, avoid duplicating the exact same row between Regional tab & Sheet1
+                        const compBase = `comp:${facKey}|${modKey}|${descKey}|${item.lastPM}`;
+                        if (!dedupMap.has(compBase)) {
+                            dedupMap.set(compBase, item);
+                        } else {
+                            // If it's a second unit in the same sheet (e.g. 6 Olympus CX23 microscopes), keep it with a counter if from same sheet
+                            noSnCounter++;
+                            dedupMap.set(`${compBase}#${noSnCounter}`, item);
+                        }
+                    }
+                });
+            });
+
+            const importedList = Array.from(dedupMap.values());
+            if (importedList.length === 0) {
+                if (typeof showNotificationToast === 'function') {
+                    showNotificationToast('No valid equipment rows found in the file.', true);
+                }
+                return;
+            }
+
+            // Replace scrambled inventory and merge cleanly with any manually added items
+            autoRepairScrambledInventoryData();
+            const existingList = Array.isArray(window.equipmentList) ? window.equipmentList : [];
+
+            importedList.forEach(incoming => {
+                const inSn = normalizeSnForDedup(incoming.serial);
+                const matchIdx = existingList.findIndex(ex => {
+                    const exSn = normalizeSnForDedup(ex.serial);
+                    if (inSn && exSn && inSn === exSn) return true;
+                    return ex.facility.toLowerCase() === incoming.facility.toLowerCase() &&
+                           ex.model.toLowerCase() === incoming.model.toLowerCase() &&
+                           ex.name.toLowerCase() === incoming.name.toLowerCase() &&
+                           ex.lastPM === incoming.lastPM;
+                });
+
+                if (matchIdx !== -1) {
+                    const keepId = existingList[matchIdx].id;
+                    existingList[matchIdx] = { ...existingList[matchIdx], ...incoming, id: keepId };
+                } else {
+                    existingList.unshift(incoming);
+                }
+            });
+
+            window.equipmentList = existingList;
+            try { if (typeof equipmentList !== 'undefined') equipmentList = existingList; } catch (_) {}
+            localStorage.setItem('seiralab_equipment', JSON.stringify(existingList));
+
+            rebuildHospitalAndDeptFilters();
+            renderFullSearchableInventoryTable();
+            if (typeof renderDashboard === 'function') renderDashboard();
+            if (typeof renderScheduleCards === 'function') renderScheduleCards();
+            buildSystemNotifications();
+
+            const siteCount = new Set(existingList.map(e => e.facility).filter(Boolean)).size;
+            if (typeof showNotificationToast === 'function') {
+                showNotificationToast(`Imported & verified ${importedList.length} machines across ${siteCount} Hospitals/Labs!`);
+            }
+            if (typeof pushToGitHub === 'function') {
+                await pushToGitHub(`Import installation.xls: ${importedList.length} machines across ${siteCount} facilities`);
+            }
+        } catch (err) {
+            if (typeof showNotificationToast === 'function') {
+                showNotificationToast('Error reading Excel file. Please try again.', true);
+            }
+        }
+    }
+
+    // ========================================================================
+    // OVERRIDE INVENTORY SEARCH, FILTERS & TABLE RENDERING SO 100% OF ITEMS ARE SEARCHABLE
+    // ========================================================================
+    function rebuildHospitalAndDeptFilters() {
+        const list = window.equipmentList || [];
+
+        const facilitySelect = document.getElementById('facilityFilter');
+        if (facilitySelect) {
+            const prevFac = facilitySelect.value;
+            const facilities = Array.from(new Set(list.map(i => String(i.facility || '').trim()).filter(Boolean)))
+                .sort((a, b) => a.localeCompare(b));
+            facilitySelect.innerHTML = `<option value="">All Hospitals / Labs (${facilities.length} Sites)</option>`;
+            facilities.forEach(fac => {
+                const opt = document.createElement('option');
+                opt.value = fac;
+                opt.textContent = fac;
+                facilitySelect.appendChild(opt);
+            });
+            if (facilities.includes(prevFac)) facilitySelect.value = prevFac;
+        }
+
+        const deptSelect = document.getElementById('deptFilter') || document.getElementById('departmentFilter');
+        if (deptSelect) {
+            const prevDept = deptSelect.value;
+            const depts = Array.from(new Set(list.map(i => String(i.department || i.dept || '').trim()).filter(Boolean)))
+                .sort((a, b) => a.localeCompare(b));
+            deptSelect.innerHTML = `<option value="">All Departments</option>`;
+            depts.forEach(d => {
+                const opt = document.createElement('option');
+                opt.value = d;
+                opt.textContent = d;
+                deptSelect.appendChild(opt);
+            });
+            if (depts.includes(prevDept)) deptSelect.value = prevDept;
+        }
+    }
+
+    function renderFullSearchableInventoryTable() {
+        const invSection = document.getElementById('inventory');
+        if (!invSection) return;
+        const tbody = document.getElementById('inventoryTableBody') || invSection.querySelector('tbody');
+        if (!tbody) return;
+
+        // Always read the latest synchronized equipment list (including newly added items from "+ Add Equipment")
+        let list = window.equipmentList || [];
+        try {
+            const stored = JSON.parse(localStorage.getItem('seiralab_equipment') || 'null');
+            if (Array.isArray(stored) && stored.length > list.length) {
+                list = stored;
+                window.equipmentList = stored;
+            }
+        } catch (_) {}
+
+        const searchInput = document.getElementById('inventorySearch') ||
+                            document.getElementById('searchInput') ||
+                            invSection.querySelector('input[type="text"], input[type="search"]');
+        const facilitySelect = document.getElementById('facilityFilter') || invSection.querySelectorAll('select')[0];
+        const deptSelect = document.getElementById('deptFilter') || document.getElementById('departmentFilter') || invSection.querySelectorAll('select')[1];
+        const statusSelect = document.getElementById('statusFilter') || invSection.querySelectorAll('select')[2];
+
+        const query = (searchInput?.value || '').trim().toLowerCase();
+        const facFilter = (facilitySelect?.value || '').trim().toLowerCase();
+        const deptFilter = (deptSelect?.value || '').trim().toLowerCase();
+        const statusFilter = (statusSelect?.value || '').trim().toLowerCase();
+
+        const filtered = list.filter(item => {
+            const name = String(item.name || '').toLowerCase();
+            const model = String(item.model || '').toLowerCase();
+            const serial = String(item.serial || '').toLowerCase();
+            const facility = String(item.facility || '').toLowerCase();
+            const dept = String(item.department || item.dept || '').toLowerCase();
+            const loc = String(item.location || '').toLowerCase();
+            const mfg = String(item.mfg || '').toLowerCase();
+            const status = String(item.status || 'Operational').toLowerCase();
+
+            // Search matches Name, Model, Serial, Hospital/Facility, Department, Location, or Manufacturer
+            const matchesSearch = !query ||
+                name.includes(query) ||
+                model.includes(query) ||
+                serial.includes(query) ||
+                facility.includes(query) ||
+                dept.includes(query) ||
+                loc.includes(query) ||
+                mfg.includes(query);
+
+            const matchesFac = !facFilter || facility === facFilter;
+            const matchesDept = !deptFilter || dept === deptFilter || loc.includes(deptFilter);
+            const matchesStatus = !statusFilter || status === statusFilter;
+
+            return matchesSearch && matchesFac && matchesDept && matchesStatus;
+        });
+
+        tbody.innerHTML = '';
+        if (filtered.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="8" class="py-10 text-center text-slate-400 text-sm">No equipment matches your search filter.</td></tr>`;
+            return;
+        }
+
+        // Show up to 250 matching items so searching any of the 648+ rows always displays immediately
+        filtered.slice(0, 250).forEach(item => {
+            const deptName = item.department || item.dept || 'Clinical Laboratory';
+            const locName = item.location || deptName;
+            const status = item.status || 'Operational';
+
+            const statusBadge = status === 'Operational'
+                ? `<span class="px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-xs font-semibold inline-flex items-center space-x-1.5"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span><span>Operational</span></span>`
+                : status === 'Under Repair'
+                ? `<span class="px-2.5 py-1 bg-rose-50 text-rose-700 border border-rose-200 rounded-full text-xs font-semibold inline-flex items-center space-x-1.5"><span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span><span>Under Repair</span></span>`
+                : `<span class="px-2.5 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-full text-xs font-semibold inline-flex items-center space-x-1.5"><span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span><span>${status}</span></span>`;
+
+            const safeId = String(item.id).replace(/'/g, "\\'");
+
+            tbody.innerHTML += `
+                <tr class="hover:bg-slate-50/70 transition-colors border-b border-slate-100 last:border-none">
+                    <td class="p-4">
+                        <div class="font-bold text-slate-900 text-sm">${item.name}</div>
+                        <div class="text-xs text-slate-500">Model: ${item.model || 'Standard'}</div>
+                    </td>
+                    <td class="p-4 font-mono text-xs font-semibold text-slate-700">${item.serial}</td>
+                    <td class="p-4 font-semibold text-slate-800 text-xs sm:text-sm">${item.facility}</td>
+                    <td class="p-4">
+                        <div class="text-xs font-semibold text-slate-700">${deptName}</div>
+                        <div class="text-[11px] text-slate-400">${locName}</div>
+                    </td>
+                    <td class="p-4 hidden">${item.risk || 'High'}</td>
+                    <td class="p-4">${statusBadge}</td>
+                    <td class="p-4 font-mono text-xs font-semibold text-slate-700">${item.nextDue || '-'}</td>
+                    <td class="p-4 text-right">
+                        <div class="inline-flex items-center justify-end space-x-1.5">
+                            <button type="button" onclick="typeof openPMModal === 'function' ? openPMModal('${safeId}') : null" class="p-1.5 bg-teal-50 hover:bg-teal-100 text-teal-700 rounded-lg transition-colors cursor-pointer" title="Log PM / Service">
+                                <i data-lucide="clipboard-check" class="w-4 h-4"></i>
+                            </button>
+                            <button type="button" onclick="typeof editEquipment === 'function' ? editEquipment('${safeId}') : null" class="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors cursor-pointer" title="Edit Equipment">
+                                <i data-lucide="edit-2" class="w-4 h-4"></i>
+                            </button>
+                            <button type="button" onclick="deleteInventoryAsset('${safeId}')" class="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg transition-colors cursor-pointer" title="Delete Equipment">
+                                <i data-lucide="trash-2" class="w-4 h-4"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        });
+
+        if (window.lucide) lucide.createIcons();
+    }
+
+    async function deleteInventoryAsset(eqId) {
+        if (!isHeadOrAdminUser()) {
+            if (typeof showNotificationToast === 'function') showNotificationToast('Only Head Technical & MasterAdmin can delete equipment.', true);
+            return;
+        }
+        const list = window.equipmentList || [];
+        const target = list.find(e => String(e.id) === String(eqId));
+        if (!target) return;
+        if (!confirm(`Delete "${target.name} (${target.model})" at ${target.facility}?`)) return;
+
+        window.equipmentList = list.filter(e => String(e.id) !== String(eqId));
+        try { if (typeof equipmentList !== 'undefined') equipmentList = window.equipmentList; } catch (_) {}
+        localStorage.setItem('seiralab_equipment', JSON.stringify(window.equipmentList));
+
+        rebuildHospitalAndDeptFilters();
+        renderFullSearchableInventoryTable();
+        if (typeof renderDashboard === 'function') renderDashboard();
+        if (typeof renderScheduleCards === 'function') renderScheduleCards();
+        if (typeof showNotificationToast === 'function') showNotificationToast(`Deleted ${target.name}.`);
+        if (typeof pushToGitHub === 'function') await pushToGitHub(`Delete Equipment: ${target.name} (${target.serial})`);
+    }
+
+    function bindInventorySearchAndFilterListeners() {
+        const invSection = document.getElementById('inventory');
+        if (!invSection) return;
+
+        const searchInput = document.getElementById('inventorySearch') ||
+                            document.getElementById('searchInput') ||
+                            invSection.querySelector('input[type="text"], input[type="search"]');
+        if (searchInput && !searchInput.dataset.boundEnhancedSearch) {
+            searchInput.dataset.boundEnhancedSearch = 'true';
+            searchInput.placeholder = 'Search by equipment, model, serial, or hospital...';
+            searchInput.oninput = renderFullSearchableInventoryTable;
+            searchInput.onkeyup = renderFullSearchableInventoryTable;
+        }
+
+        invSection.querySelectorAll('select').forEach(sel => {
+            if (!sel.dataset.boundEnhancedFilter) {
+                sel.dataset.boundEnhancedFilter = 'true';
+                sel.onchange = renderFullSearchableInventoryTable;
+            }
         });
     }
 
@@ -970,6 +1580,8 @@
             fileInput.addEventListener('change', handleAssetDataFileImport);
             document.body.appendChild(fileInput);
         }
+
+        bindInventorySearchAndFilterListeners();
     }
 
     function triggerAssetImportPicker() {
@@ -977,139 +1589,6 @@
         relocateImportAssetButtonAndFixInput();
         const fileInput = document.getElementById('seiralabAssetFileInput');
         if (fileInput) { fileInput.value = ''; fileInput.click(); }
-    }
-
-    function parseFlexibleInstallDate(val) {
-        if (val !== undefined && val !== null && val !== '') {
-            if (typeof val === 'number' && val > 20000 && val < 80000) {
-                const utcDays = Math.floor(val - 25569);
-                const d = new Date(utcDays * 86400 * 1000);
-                if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
-            }
-            if (val instanceof Date && !isNaN(val.getTime())) return val.toISOString().split('T')[0];
-            let str = String(val).trim().replace(/\s+/g, ' ').replace(/,(\d{4})/, ', $1');
-            const parsed = new Date(str);
-            if (!isNaN(parsed.getTime()) && parsed.getFullYear() >= 1995 && parsed.getFullYear() <= 2035) {
-                return parsed.toISOString().split('T')[0];
-            }
-        }
-        return new Date().toISOString().split('T')[0];
-    }
-
-    function computeNextPMFromInstall(installDateStr) {
-        const base = new Date(installDateStr);
-        const next = isNaN(base.getTime()) ? new Date() : new Date(base);
-        next.setMonth(next.getMonth() + 6);
-        const cutoff = new Date(); cutoff.setMonth(cutoff.getMonth() - 2);
-        while (next < cutoff) next.setMonth(next.getMonth() + 6);
-        return next.toISOString().split('T')[0];
-    }
-
-    function inferDepartmentFromProduct(productType, brand) {
-        const p = `${productType || ''} ${brand || ''}`.toLowerCase();
-        if (p.includes('hematology') || p.includes('coagulation')) return 'Hematology Section';
-        if (p.includes('chemistry') || p.includes('electrolyte') || p.includes('immunoassay') || p.includes('urine')) return 'Clinical Pathology Lab';
-        if (p.includes('blood gas') || p.includes('ventilator') || p.includes('anesthesia')) return 'ICU / Respiratory Care';
-        if (p.includes('ecg') || p.includes('monitor') || p.includes('ultrasound') || p.includes('xray')) return 'Diagnostic Imaging & Cardio';
-        return 'Clinical Laboratory';
-    }
-
-    function parseWorksheetToEquipment(worksheet, sheetName, XLSX) {
-        const matrix = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
-        if (!matrix || matrix.length === 0) return [];
-
-        let headerRowIndex = -1;
-        for (let r = 0; r < Math.min(matrix.length, 15); r++) {
-            const rowCells = (matrix[r] || []).map(c => String(c).trim().toLowerCase());
-            const hasAccount = rowCells.some(c => c.includes('account name') || c.includes('hospital') || c.includes('facility'));
-            const hasModel = rowCells.some(c => c.includes('model') || c.includes('serial') || c.includes('product type') || c.includes('brand'));
-            if (hasAccount && hasModel) { headerRowIndex = r; break; }
-        }
-        if (headerRowIndex === -1) headerRowIndex = 0;
-
-        const rawHeaders = (matrix[headerRowIndex] || []).map(h => String(h).trim().toLowerCase().replace(/[^a-z0-9]/g, ''));
-        const findCol = (list) => rawHeaders.findIndex(h => list.some(k => h.includes(k)));
-
-        const colFacility = findCol(['accountname', 'hospital', 'facility', 'account']);
-        const colAddress  = findCol(['address', 'location']);
-        const colBrand    = findCol(['brand', 'maker']);
-        const colProdType = findCol(['producttype', 'equipment', 'machine']);
-        const colModel    = findCol(['model']);
-        const colSerial   = findCol(['serial', 'sn']);
-        const colDate     = findCol(['dateinstalled', 'install', 'lastpm']);
-
-        const extracted = [];
-        let lastFacility = '';
-        let lastAddress = '';
-
-        for (let r = headerRowIndex + 1; r < matrix.length; r++) {
-            const row = matrix[r] || [];
-            if (row.filter(c => String(c).trim() !== '').length < 2) continue;
-
-            let facility = colFacility !== -1 ? String(row[colFacility] || '').trim() : '';
-            let address  = colAddress !== -1 ? String(row[colAddress] || '').trim() : '';
-            const brand    = colBrand !== -1 ? String(row[colBrand] || '').trim() : '';
-            const prodType = colProdType !== -1 ? String(row[colProdType] || '').trim() : '';
-            const model    = colModel !== -1 ? String(row[colModel] || '').trim() : '';
-            const rawSn    = colSerial !== -1 ? String(row[colSerial] || '').trim() : '';
-            const rawDate  = colDate !== -1 ? row[colDate] : '';
-
-            if (facility.toLowerCase() === 'account name' || model.toLowerCase() === 'model') continue;
-            if (facility) { lastFacility = facility; if (address) lastAddress = address; }
-            else if (lastFacility && (prodType || model || brand)) { facility = lastFacility; if (!address) address = lastAddress; }
-            if (!facility && !prodType && !model) continue;
-
-            const eqName = (brand && prodType && !prodType.toLowerCase().includes(brand.toLowerCase())) ? `${brand} ${prodType}` : (prodType || brand || model || 'Medical Equipment');
-            const cleanModel = (model && model.toUpperCase() !== 'N/A') ? model : (brand || 'Standard');
-            const cleanDept = inferDepartmentFromProduct(prodType, brand);
-            const lastPM = parseFlexibleInstallDate(rawDate);
-            const isMissingSn = !rawSn || rawSn.toUpperCase() === 'N/A' || rawSn === '-';
-            const cleanSerial = isMissingSn ? `${sheetName.slice(0, 3).toUpperCase()}-${cleanModel.replace(/[^A-Za-z0-9]/g, '')}-${r}` : rawSn;
-
-            extracted.push({
-                id: Date.now() + r + Math.floor(Math.random() * 10000),
-                name: eqName,
-                model: cleanModel,
-                serial: cleanSerial,
-                facility: facility || `${sheetName} Facility`,
-                department: cleanDept,
-                dept: cleanDept,
-                location: address ? `${sheetName} - ${address}` : `${sheetName} - Clinical Lab`,
-                risk: 'High',
-                status: 'Operational',
-                lastPM,
-                nextDue: computeNextPMFromInstall(lastPM),
-                interval: 'Semi-Annual (6 Mos)'
-            });
-        }
-        return extracted;
-    }
-
-    async function handleAssetDataFileImport(event) {
-        const file = event.target.files?.[0];
-        if (!file) return;
-        try {
-            const XLSX = await ensureSheetJSLoaded();
-            const arrayBuffer = await file.arrayBuffer();
-            const workbook = XLSX.read(arrayBuffer, { type: 'array', cellDates: true });
-            const allItems = [];
-            workbook.SheetNames.forEach(sheetName => {
-                allItems.push(...parseWorksheetToEquipment(workbook.Sheets[sheetName], sheetName.trim(), XLSX));
-            });
-
-            if (allItems.length > 0) {
-                window.equipmentList = allItems;
-                localStorage.setItem('seiralab_equipment', JSON.stringify(window.equipmentList));
-                if (typeof populateFacilityFilter === 'function') populateFacilityFilter();
-                if (typeof renderInventoryTable === 'function') renderInventoryTable();
-                if (typeof renderDashboard === 'function') renderDashboard();
-                if (typeof renderScheduleCards === 'function') renderScheduleCards();
-                if (typeof showNotificationToast === 'function') showNotificationToast(`Imported ${allItems.length} machines across ${workbook.SheetNames.length} regional sheets!`);
-                if (typeof pushToGitHub === 'function') await pushToGitHub(`Import installation.xls (${allItems.length} machines)`);
-            }
-        } catch (err) {
-            if (typeof showNotificationToast === 'function') showNotificationToast('Error reading Excel file.', true);
-        }
     }
 
     function removeRiskFromAllUI() {
@@ -1120,6 +1599,20 @@
             document.head.appendChild(style);
         }
     }
+
+    // Override global renderInventoryTable & populateFacilityFilter so app.js always uses the fixed version
+    window.renderInventoryTable = renderFullSearchableInventoryTable;
+    window.populateFacilityFilter = rebuildHospitalAndDeptFilters;
+    window.deleteInventoryAsset = deleteInventoryAsset;
+    window.autoRepairScrambledInventoryData = autoRepairScrambledInventoryData;
+
+    // Also run autoRepair & re-render immediately when this block initializes
+    setTimeout(() => {
+        autoRepairScrambledInventoryData();
+        rebuildHospitalAndDeptFilters();
+        bindInventorySearchAndFilterListeners();
+        renderFullSearchableInventoryTable();
+    }, 150);
 
     // ========================================================================
     // 6. OFFICIAL SERVICE REPORT SERIES ENGINE (05535+) & EDIT WORKFLOW
