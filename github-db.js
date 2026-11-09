@@ -4,14 +4,10 @@
 // ============================================================================
 
 const DEFAULT_GH_CONFIG = {
-    mode: 'proxy', // 'proxy' uses Cloudflare /api/data automatically
-    proxyUrl: '/api/data',
-    owner: 'raizon001',
-    repo: 'seiralab-cmms-db',
-    branch: 'main',
-    path: 'data/cmms_db.json',
-    token: ''
+    mode: "proxy",
+    proxyUrl: "/api/data"
 };
+
 
 let ghConfig = Object.assign({}, DEFAULT_GH_CONFIG, JSON.parse(localStorage.getItem('seiralab_gh_config') || '{}'));
 // Force proxyUrl to /api/data so it always talks to your Cloudflare Worker
