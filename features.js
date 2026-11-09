@@ -2081,104 +2081,122 @@
         });
     }
 
+   // ========================================================================
+    // UPGRADED SECTION 7:
+    // - Circular Biomedical Team Favicon in Browser Tab (Screenshot 2)
+    // - Top-Left Seiralab Logo & "About Us" Modal on Login Screen (Screenshot 1)
+    // - Fixed Visible Role Name Next to Dropdown Arrow (Screenshot 3)
+    // - Full Visual Charts & Progress Bars in Reports & Analytics (Screenshot 3)
     // ========================================================================
-    // 7. STRICT ROLE VISIBILITY, ACCOUNT MENU, SELF-CONTAINED TAB SWITCHER
-    //    & DASHBOARD KPI COUNTER SYNC
-    // ========================================================================
-    function syncDashboardCountersAndTables() {
-        ensureLegacyIdsNeverNull();
-        const list = (window.equipmentList || []).filter(item => normalizeStatusLabel(item.status) !== 'PULL OUT');
-        const today = new Date();
 
-        let operationalCount = 0;
-        let dueSoonCount = 0;
-        let overdueOrRepairCount = 0;
-        const urgentItems = [];
+    function applyCircularTeamFaviconAndLoginLayout() {
+        // 1. Set Browser Tab Icon to Circular Biomedical Technical Team Emblem (./team.png.jpg)
+        let link = document.querySelector("link[rel*='icon']");
+        if (!link) {
+            link = document.createElement('link');
+            link.rel = 'icon';
+            document.head.appendChild(link);
+        }
+        if (!link.dataset.biomedEmblemApplied) {
+            link.dataset.biomedEmblemApplied = 'true';
+            link.href = './team.png.jpg';
 
-        list.forEach(item => {
-            const st = normalizeStatusLabel(item.status);
-            if (st === 'Operational') operationalCount++;
-
-            const dueStr = item.nextDue || computeNextPMFromInstall(item.installDate || item.lastPM);
-            const diffDays = Math.ceil((new Date(dueStr) - today) / 86400000);
-
-            if (st === 'Under Repair' || diffDays < 0) {
-                overdueOrRepairCount++;
-                urgentItems.push({ ...item, nextDue: dueStr, diffDays });
-            } else if (diffDays <= 30) {
-                dueSoonCount++;
-                urgentItems.push({ ...item, nextDue: dueStr, diffDays });
-            }
-        });
-
-        const total = list.length;
-        const rate = total > 0 ? Math.round((operationalCount / total) * 100) : 100;
-
-        const setTxt = (id, val) => {
-            const el = document.getElementById(id);
-            if (el) el.innerText = val;
-        };
-
-        setTxt('statTotalAssets', total);
-        setTxt('statTotal', total);
-        setTxt('statOperational', operationalCount);
-        setTxt('statComplianceRate', `${rate}% readiness`);
-        setTxt('statDueSoon', dueSoonCount);
-        setTxt('statDue', dueSoonCount);
-        setTxt('statOverdue', overdueOrRepairCount);
-        setTxt('statCritical', overdueOrRepairCount);
-
-        const ghText = document.getElementById('ghStatusText');
-        const ghDot = document.getElementById('ghStatusDot');
-        if (ghText && ghText.innerText.includes('Syncing')) {
-            ghText.innerText = 'Cloud DB: Ready';
-            if (ghDot) ghDot.className = 'w-2 h-2 rounded-full bg-emerald-500';
+            // Crop into a crisp circular favicon via offscreen canvas
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = function () {
+                try {
+                    const c = document.createElement('canvas');
+                    c.width = 64;
+                    c.height = 64;
+                    const ctx = c.getContext('2d');
+                    ctx.beginPath();
+                    ctx.arc(32, 32, 30, 0, Math.PI * 2);
+                    ctx.closePath();
+                    ctx.clip();
+                    ctx.drawImage(img, 0, 0, 64, 64);
+                    ctx.lineWidth = 3;
+                    ctx.strokeStyle = '#14b8a6';
+                    ctx.stroke();
+                    link.type = 'image/png';
+                    link.href = c.toDataURL('image/png');
+                } catch (_) {}
+            };
+            img.src = './team.png.jpg';
         }
 
-        const urgentTbody = document.getElementById('urgentTableBody');
-        if (urgentTbody) {
-            urgentItems.sort((a, b) => a.diffDays - b.diffDays);
-            if (urgentItems.length === 0) {
-                urgentTbody.innerHTML = `<tr><td colspan="5" class="py-6 text-center text-slate-400 text-xs">All medical equipment is up to date on Preventive Maintenance.</td></tr>`;
-            } else {
-                urgentTbody.innerHTML = urgentItems.slice(0, 12).map(eq => {
-                    const safeId = String(eq.id).replace(/'/g, "\\'");
-                    const badge = eq.diffDays < 0
-                        ? `<span class="text-rose-600 font-bold">${eq.nextDue} (${Math.abs(eq.diffDays)}d overdue)</span>`
-                        : `<span class="text-amber-600 font-semibold">${eq.nextDue} (in ${eq.diffDays}d)</span>`;
-                    return `<tr class="border-b border-slate-100 last:border-none">
-                        <td class="py-2.5 px-3 font-bold text-slate-900 text-xs">${eq.name}<div class="text-[11px] font-normal text-slate-500">Model: ${eq.model} &bull; SN: ${eq.serial}</div></td>
-                        <td class="py-2.5 px-3 text-xs text-slate-700">${eq.facility}</td>
-                        <td class="py-2.5 px-3 hidden">High</td>
-                        <td class="py-2.5 px-3 text-xs font-mono">${badge}</td>
-                        <td class="py-2.5 px-3 text-right">
-                            <button type="button" onclick="openInventoryServiceReport('${safeId}')" class="px-2.5 py-1 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-[11px] font-semibold cursor-pointer">Service PM</button>
-                        </td>
-                    </tr>`;
-                }).join('');
+        // 2. Ensure Seiralab Logo on Login Portal is pinned to Top-Left & bottom link says "About Us"
+        const overlay = document.getElementById('loginPortalOverlay');
+        if (overlay && !overlay.dataset.layoutUpgraded) {
+            overlay.dataset.layoutUpgraded = 'true';
+
+            // Move logo out of center card into top-left corner if still inside card
+            const cardLogoImg = overlay.querySelector('.max-w-md img[src*="seiralab-logo"]');
+            if (cardLogoImg && cardLogoImg.parentElement) {
+                cardLogoImg.parentElement.remove();
+            }
+
+            if (!document.getElementById('loginTopLeftLogo')) {
+                const topLeftLogo = document.createElement('div');
+                topLeftLogo.id = 'loginTopLeftLogo';
+                topLeftLogo.className = 'fixed top-4 left-4 sm:top-6 sm:left-6 z-20 inline-flex items-center bg-white/95 backdrop-blur-md rounded-2xl px-3.5 py-2 shadow-xl border border-slate-200/80';
+                topLeftLogo.innerHTML = `<img src="./seiralab-logo.jpg" alt="Seiralab Incorporated" class="h-8 sm:h-10 w-auto object-contain" onerror="this.onerror=null; this.src='./seiralab-logo.gIH9ySyn.jpg';">`;
+                overlay.appendChild(topLeftLogo);
+            }
+
+            // Replace "Continue as Visitor" button with "About Us"
+            const visitorBtn = overlay.querySelector('button[onclick*="enterVisitorModeDirect"]');
+            if (visitorBtn) {
+                visitorBtn.setAttribute('onclick', 'openAboutUsModal()');
+                visitorBtn.className = 'inline-flex items-center space-x-1.5 text-xs font-semibold text-teal-400 hover:text-teal-300 underline cursor-pointer';
+                visitorBtn.innerHTML = `<span>About Us</span>`;
             }
         }
 
-        const feed = document.getElementById('recentActivityFeed');
-        if (feed) {
-            const logs = (window.historyLogs || []).slice(0, 6);
-            if (logs.length === 0) {
-                feed.innerHTML = `<div class="py-6 text-center text-slate-400 text-xs">No maintenance logs recorded yet.</div>`;
-            } else {
-                feed.innerHTML = logs.map(l => `
-                    <div class="p-3 rounded-xl bg-slate-50 border border-slate-200/70 text-xs space-y-1">
-                        <div class="flex items-center justify-between">
-                            <span class="font-bold text-slate-900">${l.eqName}</span>
-                            <span class="font-mono text-[10px] px-1.5 py-0.5 bg-teal-100 text-teal-800 rounded font-bold">SR #${l.reportNo || '05535'}</span>
-                        </div>
-                        <p class="text-slate-600 text-[11px]">${l.facility} &bull; ${l.date}</p>
+        // 3. Create "About Us" Modal if not present
+        if (document.body && !document.getElementById('seiralabAboutUsModal')) {
+            const aboutHTML = `
+            <div id="seiralabAboutUsModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[150] hidden flex items-center justify-center p-4">
+                <div class="bg-slate-900 border border-slate-700/80 text-white rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl relative text-center">
+                    <button type="button" onclick="closeAboutUsModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white text-2xl leading-none p-1 cursor-pointer">&times;</button>
+                    <div class="w-20 h-20 mx-auto mb-3 rounded-full p-1 bg-gradient-to-tr from-teal-500 to-emerald-400 shadow-lg">
+                        <img src="./team.png.jpg" alt="Biomedical Team" class="w-full h-full object-cover rounded-full bg-slate-900">
                     </div>
-                `).join('');
-            }
+                    <h3 class="text-lg sm:text-xl font-extrabold tracking-wide uppercase text-teal-400">Seiralab Incorporated</h3>
+                    <p class="text-xs font-semibold text-slate-300 mt-0.5">Diagnostic &amp; Medical Equipment &bull; "Committed to Care"</p>
+                    <div class="mt-4 text-xs sm:text-sm text-slate-300 space-y-3 text-left bg-slate-950/70 border border-slate-800 rounded-2xl p-4 leading-relaxed">
+                        <p><strong class="text-white">ATLAS Biomedical CMMS</strong> is the official Computerized Maintenance Management System engineered for the <strong class="text-teal-400">Seiralab Biomedical Technical Team</strong>.</p>
+                        <p>Our engineering division provides preventive maintenance, ISO/DOH-traceable calibration, and rapid field service for clinical chemistry, hematology, electrolyte, immunoassay, and critical care equipment across <strong class="text-white">150+ partner hospitals and laboratories</strong> in Mindanao and Visayas.</p>
+                        <div class="pt-2 border-t border-slate-800 text-[11px] text-slate-400 space-y-1">
+                            <div><strong class="text-slate-200">Head Office:</strong> Unit 1-6, Level 2, MGM Bldg., Gensan Drive, Brgy. Sto. Niño, City of Koronadal, South Cotabato 9506</div>
+                            <div><strong class="text-slate-200">Regional Hubs:</strong> Koronadal &bull; Davao &bull; Cebu &bull; Iloilo &bull; Cagayan de Oro &bull; General Santos</div>
+                        </div>
+                    </div>
+                    <div class="mt-5">
+                        <button type="button" onclick="closeAboutUsModal()" class="px-6 py-2.5 bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs rounded-xl shadow-md cursor-pointer">
+                            Back to ATLAS Login
+                        </button>
+                    </div>
+                </div>
+            </div>`;
+            document.body.insertAdjacentHTML('beforeend', aboutHTML);
         }
     }
 
+    function openAboutUsModal() {
+        applyCircularTeamFaviconAndLoginLayout();
+        document.getElementById('seiralabAboutUsModal')?.classList.remove('hidden');
+    }
+
+    function closeAboutUsModal() {
+        document.getElementById('seiralabAboutUsModal')?.classList.add('hidden');
+    }
+
+    window.openAboutUsModal = openAboutUsModal;
+    window.closeAboutUsModal = closeAboutUsModal;
+
     function enforceRoleNavigationAndMenuUI(forceRebuildMenu = false) {
+        applyCircularTeamFaviconAndLoginLayout();
         const role = getActiveRole();
         const isSupervisor = (role === 'Head Technical' || role === 'MasterAdmin');
         const isVisitor = (!role || role === 'Visitor');
@@ -2197,13 +2215,15 @@
             masterSwitchTab('dashboard');
         }
 
+        // Fix Blank Role Text next to Dropdown Arrow (Screenshot 3):
+        // Use `currentOpt.value = role` so even if app.js sets `roleSelect.value = role`, the text never turns blank!
         const roleSelect = document.getElementById('accessRoleSelect');
-        if (roleSelect && (forceRebuildMenu || lastRenderedMenuRole !== role || roleSelect.options.length <= 1)) {
+        if (roleSelect && (forceRebuildMenu || lastRenderedMenuRole !== role || roleSelect.options.length <= 1 || roleSelect.selectedIndex === -1)) {
             lastRenderedMenuRole = role;
             roleSelect.innerHTML = '';
 
             const currentOpt = document.createElement('option');
-            currentOpt.value = '__CURRENT__';
+            currentOpt.value = role;
             currentOpt.textContent = role;
             currentOpt.selected = true;
             roleSelect.appendChild(currentOpt);
@@ -2225,6 +2245,8 @@
                 roleSelect.appendChild(logoutOpt);
             }
 
+            roleSelect.value = role;
+
             const subtext = document.getElementById('accessRoleSubtext');
             if (subtext) {
                 subtext.innerText = isVisitor ? 'View-Only Mode' : `Welcome, ${role}`;
@@ -2232,7 +2254,7 @@
 
             roleSelect.onchange = async function () {
                 const action = this.value;
-                this.value = '__CURRENT__';
+                this.value = role;
 
                 if (action === '__SIGN_IN__' || action === '__SWITCH_ACCOUNT__') {
                     const overlay = document.getElementById('loginPortalOverlay');
@@ -2341,39 +2363,166 @@
         }).join('');
     }
 
+    // Comprehensive Visual Reports & Fleet Analytics (Fixes Sparse/Empty Space in Screenshot 3)
     function renderReportsAnalyticsSection() {
-        const list = (window.equipmentList || []).filter(item => normalizeStatusLabel(item.status) !== 'PULL OUT');
-        const statusBox = document.getElementById('reportStatusBreakdown');
-        const facBox = document.getElementById('reportFacilityBreakdown');
+        const container = document.getElementById('reportsContainer');
+        if (!container) return;
 
-        if (statusBox) {
-            const counts = { 'Operational': 0, 'Maintenance Due': 0, 'Under Repair': 0 };
-            list.forEach(i => {
-                const st = normalizeStatusLabel(i.status);
-                counts[st] = (counts[st] || 0) + 1;
-            });
-            statusBox.innerHTML = Object.entries(counts).map(([k, v]) => `
-                <div class="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-200/60 text-xs">
-                    <span class="font-semibold text-slate-700">${k}</span>
-                    <span class="font-bold text-slate-900">${v} units</span>
-                </div>
-            `).join('');
-        }
+        const allItems = window.equipmentList || [];
+        const totalAll = allItems.length || 1;
+        const today = new Date();
 
-        if (facBox) {
-            const facCounts = {};
-            list.forEach(i => {
-                const f = i.facility || 'Unspecified';
-                facCounts[f] = (facCounts[f] || 0) + 1;
-            });
-            const topFacs = Object.entries(facCounts).sort((a, b) => b[1] - a[1]).slice(0, 8);
-            facBox.innerHTML = topFacs.map(([f, c]) => `
-                <div class="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-200/60 text-xs">
-                    <span class="font-semibold text-slate-700 truncate pr-3">${f}</span>
-                    <span class="font-bold text-teal-700 shrink-0">${c} units</span>
+        let opCount = 0;
+        let dueCount = 0;
+        let repairCount = 0;
+        let pullOutCount = 0;
+        const deptCounts = {};
+        const facCounts = {};
+
+        allItems.forEach(item => {
+            const st = normalizeStatusLabel(item.status);
+            const dueStr = item.nextDue || computeNextPMFromInstall(item.installDate || item.lastPM);
+            const diffDays = Math.ceil((new Date(dueStr) - today) / 86400000);
+
+            if (st === 'PULL OUT') {
+                pullOutCount++;
+            } else if (st === 'Under Repair') {
+                repairCount++;
+            } else if (st === 'Maintenance Due' || diffDays <= 30) {
+                dueCount++;
+            } else {
+                opCount++;
+            }
+
+            const d = item.department || item.dept || 'Clinical Laboratory';
+            deptCounts[d] = (deptCounts[d] || 0) + 1;
+
+            const f = item.facility || 'Unspecified Facility';
+            facCounts[f] = (facCounts[f] || 0) + 1;
+        });
+
+        const totalSites = Object.keys(facCounts).length;
+        const totalServiceLogs = (window.historyLogs || []).length;
+        const totalCalCerts = (window.calibrationList || []).length;
+        const activeFleet = Math.max(1, allItems.length - pullOutCount);
+        const compliancePct = Math.round(((opCount + dueCount) / activeFleet) * 100);
+
+        const statusRows = [
+            { label: 'Operational (Verified)', count: opCount, pct: Math.round((opCount / totalAll) * 100), bar: 'bg-emerald-500', text: 'text-emerald-700' },
+            { label: 'PM Due / Scheduled (Within 30d)', count: dueCount, pct: Math.round((dueCount / totalAll) * 100), bar: 'bg-amber-500', text: 'text-amber-700' },
+            { label: 'Under Repair / Corrective Service', count: repairCount, pct: Math.round((repairCount / totalAll) * 100), bar: 'bg-rose-500', text: 'text-rose-700' },
+            { label: 'PULL OUT (Inactive / Pulled Out)', count: pullOutCount, pct: Math.round((pullOutCount / totalAll) * 100), bar: 'bg-slate-500', text: 'text-slate-700' }
+        ];
+
+        const topDepts = Object.entries(deptCounts).sort((a, b) => b[1] - a[1]).slice(0, 6);
+        const topFacs = Object.entries(facCounts).sort((a, b) => b[1] - a[1]).slice(0, 8);
+        const maxFacCount = topFacs[0]?.[1] || 1;
+
+        container.className = 'space-y-6';
+        container.innerHTML = `
+            <!-- Top Executive Summary KPI Row -->
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs">
+                    <p class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Partner Hospitals &amp; Labs</p>
+                    <p class="text-2xl font-extrabold text-slate-900 mt-1">${totalSites}</p>
+                    <p class="text-xs text-teal-600 font-medium mt-0.5">Active regional client sites</p>
                 </div>
-            `).join('');
-        }
+                <div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs">
+                    <p class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Fleet Availability Rate</p>
+                    <p class="text-2xl font-extrabold text-emerald-600 mt-1">${compliancePct}%</p>
+                    <p class="text-xs text-slate-500 mt-0.5">${opCount + dueCount} of ${activeFleet} active machines</p>
+                </div>
+                <div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs">
+                    <p class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Registered Service Reports</p>
+                    <p class="text-2xl font-extrabold text-slate-900 mt-1">${totalServiceLogs}</p>
+                    <p class="text-xs text-teal-600 font-medium mt-0.5">Official SR #05535+ series</p>
+                </div>
+                <div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs">
+                    <p class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Calibration Certificates</p>
+                    <p class="text-2xl font-extrabold text-blue-600 mt-1">${totalCalCerts}</p>
+                    <p class="text-xs text-slate-500 mt-0.5">DOH / ISO 17025 traceable</p>
+                </div>
+            </div>
+
+            <!-- 2-Column Visual Breakdown Grid -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Left Column: Equipment by Status + Departmental Modality Breakdown -->
+                <div class="space-y-6">
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-2xs">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="font-bold text-slate-900 text-sm">Equipment Fleet by Operational Status</h3>
+                            <span class="text-xs font-semibold text-slate-400">${allItems.length} Total Units</span>
+                        </div>
+                        <div class="space-y-3.5">
+                            ${statusRows.map(s => `
+                                <div>
+                                    <div class="flex items-center justify-between text-xs mb-1">
+                                        <span class="font-semibold text-slate-700">${s.label}</span>
+                                        <span class="font-bold ${s.text}">${s.count} units (${s.pct}%)</span>
+                                    </div>
+                                    <div class="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                                        <div class="${s.bar} h-full rounded-full transition-all" style="width: ${Math.max(s.count > 0 ? 4 : 0, s.pct)}%"></div>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-2xs">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="font-bold text-slate-900 text-sm">Departmental &amp; Laboratory Section Distribution</h3>
+                            <span class="text-xs font-semibold text-teal-600">By Modality</span>
+                        </div>
+                        <div class="space-y-3">
+                            ${topDepts.map(([dept, count]) => {
+                                const pct = Math.round((count / totalAll) * 100);
+                                return `
+                                    <div>
+                                        <div class="flex items-center justify-between text-xs mb-1">
+                                            <span class="font-semibold text-slate-700">${dept}</span>
+                                            <span class="font-bold text-slate-900">${count} units (${pct}%)</span>
+                                        </div>
+                                        <div class="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                                            <div class="bg-teal-600 h-full rounded-full" style="width: ${Math.max(5, pct)}%"></div>
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right Column: Top Client Hospitals & Laboratories Density -->
+                <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-2xs flex flex-col justify-between">
+                    <div>
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="font-bold text-slate-900 text-sm">Top Client Hospitals &amp; Laboratories</h3>
+                            <span class="text-xs font-semibold text-slate-400">Highest Installed Base</span>
+                        </div>
+                        <div class="space-y-3">
+                            ${topFacs.map(([fac, count], idx) => {
+                                const relWidth = Math.round((count / maxFacCount) * 100);
+                                return `
+                                    <div class="p-2.5 bg-slate-50/80 rounded-xl border border-slate-200/60">
+                                        <div class="flex items-center justify-between text-xs mb-1.5">
+                                            <span class="font-bold text-slate-800 truncate pr-3">${idx + 1}. ${fac}</span>
+                                            <span class="px-2 py-0.5 bg-teal-50 text-teal-700 border border-teal-200 rounded-md font-bold shrink-0">${count} units</span>
+                                        </div>
+                                        <div class="w-full h-1.5 bg-slate-200/70 rounded-full overflow-hidden">
+                                            <div class="bg-gradient-to-r from-teal-600 to-emerald-500 h-full rounded-full" style="width: ${relWidth}%"></div>
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+                    <div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+                        <span>Showing top ${topFacs.length} of ${totalSites} partner facilities</span>
+                        <button type="button" onclick="switchTab('inventory')" class="font-semibold text-teal-600 hover:text-teal-700 cursor-pointer">View All Assets &rarr;</button>
+                    </div>
+                </div>
+            </div>
+        `;
     }
 
     function masterSwitchTab(tabId) {
@@ -2420,97 +2569,4 @@
         if (tabId === 'tools') renderToolLogsTable();
     }
 
-    // Export all handlers globally
     window.switchTab = masterSwitchTab;
-    window.renderDashboard = syncDashboardCountersAndTables;
-    window.renderScheduleCards = renderFullPMScheduleCards;
-    window.enforceRoleNavigationAndMenuUI = enforceRoleNavigationAndMenuUI;
-
-    window.renderInventoryTable = renderFullSearchableInventoryTable;
-    window.populateFacilityFilter = rebuildHospitalAndDeptFilters;
-    window.openInventoryServiceReport = openInventoryServiceReport;
-    window.openInventoryEditModal = openInventoryEditModal;
-    window.closeInventoryEditModal = closeInventoryEditModal;
-    window.saveInventoryEditedAsset = saveInventoryEditedAsset;
-    window.deleteInventoryAsset = deleteInventoryAsset;
-    window.editEquipment = openInventoryEditModal;
-    window.openPMModal = openInventoryServiceReport;
-
-    window.openNotificationModal = openNotificationModal;
-    window.closeNotificationModal = closeNotificationModal;
-    window.buildSystemNotifications = buildSystemNotifications;
-    window.renderNotifications = buildSystemNotifications;
-
-    window.renderCalibrationTable = renderCalibrationTable;
-    window.openAddCalibrationModal = openAddCalibrationModal;
-    window.downloadCalibrationCert = downloadCalibrationCert;
-    window.openLatestCalibrationCertForPrint = openLatestCalibrationCertForPrint;
-    window.openEditCalibrationModal = openEditCalibrationModal;
-    window.submitCalibrationEditRequest = submitCalibrationEditRequest;
-    window.resolveCalibrationEditRequest = resolveCalibrationEditRequest;
-    window.saveCalibrationCertificateFromTemplate = saveCalibrationCertificateFromTemplate;
-    window.deleteCalibrationReport = deleteCalibrationReport;
-
-    window.renderToolLogsTable = renderToolLogsTable;
-    window.openBorrowToolModal = openBorrowToolModal;
-    window.closeBorrowToolModal = closeBorrowToolModal;
-    window.saveToolBorrow = saveToolBorrow;
-    window.deleteToolLog = deleteToolLog;
-    window.markToolReturned = markToolReturned;
-
-    window.triggerAssetImportPicker = triggerAssetImportPicker;
-    window.importAssetData = triggerAssetImportPicker;
-    window.triggerImport = triggerAssetImportPicker;
-    window.handleImportFile = handleAssetDataFileImport;
-
-    window.openServiceReportTemplate = openServiceReportForViewing;
-    window.openNewServiceReportRegistration = openNewServiceReportRegistration;
-    window.openServiceReportForViewing = openServiceReportForViewing;
-    window.requestEditServiceReport = requestEditServiceReport;
-    window.closeEditRequestModal = closeEditRequestModal;
-    window.submitTechnicalEditRequest = submitTechnicalEditRequest;
-    window.resolveServiceReportEditRequest = resolveServiceReportEditRequest;
-    window.deleteServiceReportLog = deleteServiceReportLog;
-    window.saveRegisteredServiceReport = saveRegisteredServiceReport;
-    window.closeServiceReportModal = closeServiceReportModal;
-    window.upgradeMaintenanceHistoryCertificateButtons = upgradeMaintenanceHistoryCertificateButtons;
-
-    function bootAllSeiralabFeatures() {
-        ensureLegacyIdsNeverNull();
-        ensureFeatureModalsExist();
-        removeRiskFromAllUI();
-        autoRepairScrambledInventoryData();
-        relocateImportAssetButtonAndFixInput();
-        rebuildHospitalAndDeptFilters();
-        renderFullSearchableInventoryTable();
-        upgradeCalibrationToolbarUI();
-        renderCalibrationTable();
-        renderToolLogsTable();
-        upgradeMaintenanceHistoryCertificateButtons();
-        syncDashboardCountersAndTables();
-        renderFullPMScheduleCards();
-        enforceRoleNavigationAndMenuUI(true);
-        buildSystemNotifications();
-    }
-
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', bootAllSeiralabFeatures);
-    } else {
-        bootAllSeiralabFeatures();
-    }
-
-    setInterval(() => {
-        enforceInstalledDateAndPullOutUI();
-        enforceRoleNavigationAndMenuUI(false);
-        if (!document.getElementById('btnOpenBlankServiceReport') ||
-            document.querySelector('#historyTableBody button')?.innerText.trim() === 'Certificate') {
-            upgradeMaintenanceHistoryCertificateButtons();
-        }
-        if (!document.getElementById('btnInventoryImportAsset')) {
-            relocateImportAssetButtonAndFixInput();
-        }
-        if (!document.getElementById('btnAddCalibrationReport')) {
-            upgradeCalibrationToolbarUI();
-        }
-    }, 1200);
-})();
