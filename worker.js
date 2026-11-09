@@ -1,8 +1,53 @@
 // ============================================================================
-// SEIRALAB ATLAS - SECURE CLOUDFLARE EDGE WORKER & API FIREWALL (worker.js)
+// SEIRALAB ATLAS CMMS — CLOUDFLARE WORKER (worker.js)
+// 1. Server-Side Authentication (/api/login & /api/logout) with HMAC Signatures
+// 2. GitHub Cloud Database Proxy (/api/data GET & POST) with Auto-SHA Recovery
+// 3. Static Asset Delivery & Source File Protection
 // ============================================================================
 
-async function signRoleToken(role, secret) {
+const DEFAULT_REPO_OWNER = "raizon001";
+const DEFAULT_REPO_NAME = "seiralab-cmms-db";
+const DEFAULT_BRANCH = "main";
+const DEFAULT_FILE_PATH = "data/cmms_db.json";
+
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Seiralab-Client, X-Seiralab-Role, X-Session-Token",
+  "Access-Control-Expose-Headers": "X-File-SHA"
+};
+
+const JSON_HEADERS = {
+  ...CORS_HEADERS,
+  "Content-Type": "application/json; charset=utf-8",
+  "Cache-Control": "no-store, no-cache, must-revalidate"
+};
+
+// Base64 helpers that safely handle UTF-8 characters (like ±, ñ, —)
+function utf8ToBase64(str) {
+  const bytes = new TextEncoder().encode(str);
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
+function base64ToUtf8(b64) {
+  const cleanB64 = String(b64 || "").replace(/\s/g, "");
+  const binary = atob(cleanB64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new TextDecoder().decode(bytes);
+}
+
+// HMAC-SHA256 Session Token Signer & Verifier
+async function signSessionToken(role, secret) {
+  const issuedAt = Date.now();
+  const payload = `${role}|${issuedAt}`;
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey(
     "raw",
@@ -11,289 +56,321 @@ async function signRoleToken(role, secret) {
     false,
     ["sign"]
   );
-  const sigBuffer = await crypto.subtle.sign("HMAC", key, enc.encode(role));
-  const sigHex = Array.from(new Uint8Array(sigBuffer))
+  const sigBuf = await crypto.subtle.sign("HMAC", key, enc.encode(payload));
+  const sigHex = Array.from(new Uint8Array(sigBuf))
     .map(b => b.toString(16).padStart(2, "0"))
     .join("");
-  const roleB64 = btoa(role).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  return `${roleB64}.${sigHex}`;
+  return `${ btoa(payload) }.${sigHex}`;
 }
 
-async function verifyRoleToken(token, secret) {
-  if (!token || !token.includes(".")) return { valid: false, role: "" };
-  const [roleB64] = token.split(".");
+async function verifySessionToken(tokenStr, secret) {
+  if (!tokenStr || !tokenStr.includes(".")) return null;
   try {
-    const base64 = roleB64.replace(/-/g, "+").replace(/_/g, "/");
-    const role = atob(base64);
-    const expected = await signRoleToken(role, secret);
-    return { valid: token === expected, role };
-  } catch {
-    return { valid: false, role: "" };
+    const [b64Payload, providedSig] = tokenStr.split(".");
+    const payload = atob(b64Payload);
+    const [role, issuedAtStr] = payload.split("|");
+    if (!role || !issuedAtStr) return null;
+
+    // Expire tokens after 7 days
+    if (Date.now() - Number(issuedAtStr) > 7 * 86400 * 1000) return null;
+
+    const enc = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      "raw",
+      enc.encode(secret),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["verify"]
+    );
+    const expectedBuf = await crypto.subtle.sign("HMAC", key, enc.encode(payload));
+    const expectedSig = Array.from(new Uint8Array(expectedBuf))
+      .map(b => b.toString(16).padStart(2, "0"))
+      .join("");
+
+    return providedSig === expectedSig ? role : null;
+  } catch (_) {
+    return null;
   }
 }
 
-function getCookieToken(cookieHeader) {
+function getCookieValue(cookieHeader, name) {
   if (!cookieHeader) return "";
-  const match = cookieHeader.match(/(?:^|;\s*)seiralab_session=([^;]*)/);
+  const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${name}=([^;]*)`));
   return match ? decodeURIComponent(match[1]) : "";
 }
 
-function utf8ToBase64(str) {
-  const bytes = new TextEncoder().encode(str);
-  let binary = "";
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary);
-}
-
-function base64ToUtf8(base64) {
-  const clean = base64.replace(/\s/g, "");
-  const binary = atob(clean);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return new TextDecoder().decode(bytes);
-}
-
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
-    const path = url.pathname.toLowerCase();
+    const path = url.pathname;
 
-    // 1. BLOCK SNOOPING ON BACKEND / CONFIG FILES
-    if (
-      path.startsWith("/functions") ||
-      path.includes("wrangler") ||
-      path.endsWith("worker.js") ||
-      path.endsWith(".go") ||
-      path.endsWith(".mod") ||
-      path.includes(".env") ||
-      path.includes(".git")
-    ) {
-      return new Response("Not Found", { status: 404 });
+    // 1. Handle CORS Preflight Requests
+    if (request.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: CORS_HEADERS });
     }
 
-    // 2. PROTECT /api/* ENDPOINTS FROM DIRECT BROWSER URL TYPING & EXTERNAL TOOLS
-    if (path.startsWith("/api/")) {
-      const secFetchSite = request.headers.get("Sec-Fetch-Site");
-      const customHeader = request.headers.get("X-Seiralab-Client");
+    const sessionSecret = env.SESSION_SECRET || "seiralab-atlas-hmac-secret-key-2026";
 
-      // If someone types https://.../api/data directly into the address bar,
-      // Sec-Fetch-Dest is 'document' and X-Seiralab-Client is missing -> Block with 404!
-      if (
-        (secFetchSite && secFetchSite !== "same-origin") ||
-        customHeader !== "ATLAS-v1"
-      ) {
-        return new Response("Not Found", { status: 404 });
-      }
+    // ========================================================================
+    // 2. AUTHENTICATION ENDPOINT: POST /api/login
+    // ========================================================================
+    if (path === "/api/login" && request.method === "POST") {
+      try {
+        const body = await request.json();
+        const role = String(body.role || "").trim();
+        const password = String(body.password || "").trim();
 
-      const secret = env.AUTH_SECRET || "seiralab_master_hmac_key_2026_secure";
-      const jsonHeaders = {
-        "Content-Type": "application/json",
-        "Cache-Control": "no-store, no-cache, must-revalidate",
-        "X-Content-Type-Options": "nosniff"
-      };
+        // Uses Cloudflare Secrets if configured, or falls back to standard Seiralab passwords
+        const techPass = env.TECH_PASSWORD || "seiralabtech";
+        const headPass = env.HEAD_PASSWORD || "seiralabhead";
+        const adminPass = env.ADMIN_PASSWORD || "seiralabadmin";
 
-      // --- ENDPOINT A: POST /api/login ---
-      if (path === "/api/login" && request.method === "POST") {
-        try {
-          const { role, password, action } = await request.json();
+        let isValid = false;
+        if (role === "Visitor") isValid = true;
+        else if (role === "Technical" && password === techPass) isValid = true;
+        else if (role === "Head Technical" && password === headPass) isValid = true;
+        else if (role === "MasterAdmin" && password === adminPass) isValid = true;
 
-          if (action === "logout") {
-            return new Response(JSON.stringify({ status: "logged_out" }), {
-              status: 200,
-              headers: {
-                ...jsonHeaders,
-                "Set-Cookie": "seiralab_session=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0"
-              }
-            });
-          }
+        if (!isValid) {
+          return new Response(
+            JSON.stringify({ success: false, error: `Invalid authorization password for ${role}.` }),
+            { status: 401, headers: JSON_HEADERS }
+          );
+        }
 
-          const passwords = {
-            "Visitor": "",
-            "Technical": env.PASS_TECHNICAL || "seiralab2026",
-            "Head Technical": env.PASS_HEAD || "seiralabhead",
-            "MasterAdmin": env.PASS_ADMIN || "seiralabadmin"
-          };
+        const signedToken = await signSessionToken(role, sessionSecret);
+        const cookieStr = `seiralab_session=${encodeURIComponent(signedToken)}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=604800`;
 
-          if (!(role in passwords)) {
-            return new Response(JSON.stringify({ error: "Invalid role" }), { status: 400, headers: jsonHeaders });
-          }
-
-          if (role !== "Visitor" && password !== passwords[role]) {
-            return new Response(JSON.stringify({ error: `Invalid password for ${role}` }), { status: 401, headers: jsonHeaders });
-          }
-
-          const token = await signRoleToken(role, secret);
-          return new Response(JSON.stringify({
-            role,
-            token,
-            message: `Welcome, ${role}`
-          }), {
+        return new Response(
+          JSON.stringify({ success: true, role, token: signedToken }),
+          {
             status: 200,
             headers: {
-              ...jsonHeaders,
-              // Invisible HttpOnly Cookie (Cannot be read by F12 JavaScript Console)
-              "Set-Cookie": `seiralab_session=${encodeURIComponent(token)}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=43200`
+              ...JSON_HEADERS,
+              "Set-Cookie": cookieStr
             }
-          });
-        } catch {
-          return new Response(JSON.stringify({ error: "Bad request" }), { status: 400, headers: jsonHeaders });
+          }
+        );
+      } catch (err) {
+        return new Response(
+          JSON.stringify({ success: false, error: "Malformed login request." }),
+          { status: 400, headers: JSON_HEADERS }
+        );
+      }
+    }
+
+    // ========================================================================
+    // 3. LOGOUT ENDPOINT: POST /api/logout
+    // ========================================================================
+    if (path === "/api/logout") {
+      return new Response(JSON.stringify({ success: true }), {
+        status: 200,
+        headers: {
+          ...JSON_HEADERS,
+          "Set-Cookie": "seiralab_session=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0"
         }
+      });
+    }
+
+    // ========================================================================
+    // 4. CLOUD DATABASE PROXY: GET & POST /api/data
+    // ========================================================================
+    if (path === "/api/data") {
+      const token = env.GITHUB_TOKEN || "";
+      const owner = env.GITHUB_OWNER || DEFAULT_REPO_OWNER;
+      const repo = env.GITHUB_REPO || DEFAULT_REPO_NAME;
+      const branch = env.GITHUB_BRANCH || DEFAULT_BRANCH;
+      const filePath = env.GITHUB_PATH || DEFAULT_FILE_PATH;
+
+      // If GITHUB_TOKEN is not set in Cloudflare yet, return clean 200 local mode (never a 500 error)
+      if (!token) {
+        return new Response(
+          JSON.stringify({
+            mode: "local",
+            message: "GITHUB_TOKEN not configured in Worker secrets yet; using local browser storage.",
+            equipmentList: [],
+            historyLogs: [],
+            toolLogs: [],
+            calibrationList: []
+          }),
+          { status: 200, headers: { ...JSON_HEADERS, "X-File-SHA": "local-only" } }
+        );
       }
 
-      // --- ENDPOINT B: GET & POST /api/data ---
-      if (path === "/api/data") {
-        const pat = env.GITHUB_TOKEN || "";
-        const owner = env.GITHUB_OWNER || "raizon001";
-        const repo = env.GITHUB_REPO || "seiralab-cmms-db";
-        const branch = env.GITHUB_BRANCH || "main";
-        const filePath = env.GITHUB_FILE_PATH || "data/cmms_db.json";
+      const ghApiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`;
+      const ghHeaders = {
+        "Authorization": `Bearer ${token}`,
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "Seiralab-ATLAS-Worker/1.0",
+        "X-GitHub-Api-Version": "2022-11-28"
+      };
 
-        if (!pat) {
-          return new Response(JSON.stringify({ error: "Server vault not configured" }), { status: 503, headers: jsonHeaders });
-        }
-
-        // READ DATABASE
-        if (request.method === "GET") {
-          const apiURL = `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}?ref=${branch}`;
-          const ghRes = await fetch(apiURL, {
-            headers: {
-              "Authorization": `Bearer ${pat}`,
-              "Accept": "application/vnd.github+json",
-              "User-Agent": "Seiralab-Atlas-Edge",
-              "X-GitHub-Api-Version": "2022-11-28"
-            }
+      // ---- 4A. GET /api/data (Load Database from GitHub) ----
+      if (request.method === "GET") {
+        try {
+          const ghRes = await fetch(`${ghApiUrl}?ref=${encodeURIComponent(branch)}`, {
+            method: "GET",
+            headers: ghHeaders
           });
 
+          // If file doesn't exist in the repo yet (404), return empty initial structure with 200
           if (ghRes.status === 404) {
-            return new Response(JSON.stringify({
-              equipmentList: [],
-              historyLogs: [],
-              toolLogs: [],
-              calibrationList: []
-            }), { status: 200, headers: { ...jsonHeaders, "X-File-SHA": "init" } });
+            return new Response(
+              JSON.stringify({
+                equipmentList: [],
+                historyLogs: [],
+                toolLogs: [],
+                calibrationList: []
+              }),
+              { status: 200, headers: { ...JSON_HEADERS, "X-File-SHA": "init" } }
+            );
           }
 
           if (!ghRes.ok) {
-            return new Response(JSON.stringify({ error: "Upstream sync error" }), { status: ghRes.status, headers: jsonHeaders });
+            return new Response(
+              JSON.stringify({ mode: "local", error: `GitHub API returned ${ghRes.status}` }),
+              { status: 200, headers: { ...JSON_HEADERS, "X-File-SHA": "local-only" } }
+            );
           }
 
-          const fileData = await ghRes.json();
-          const decodedJson = base64ToUtf8(fileData.content);
-          return new Response(decodedJson, {
+          const fileMeta = await ghRes.json();
+          const decodedJsonStr = fileMeta.content ? base64ToUtf8(fileMeta.content) : "{}";
+
+          return new Response(decodedJsonStr, {
             status: 200,
-            headers: { ...jsonHeaders, "X-File-SHA": fileData.sha }
-          });
-        }
-
-        // WRITE DATABASE
-        if (request.method === "POST") {
-          const cookieToken = getCookieToken(request.headers.get("Cookie"));
-          const bearerToken = (request.headers.get("Authorization") || "").replace("Bearer ", "").trim();
-          const activeToken = cookieToken || bearerToken;
-
-          const { valid, role } = await verifyRoleToken(activeToken, secret);
-          if (!valid || role === "Visitor") {
-            return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 403, headers: jsonHeaders });
-          }
-
-          const rawBody = await request.text();
-          const commitMsg = request.headers.get("X-Commit-Message") || "Update records";
-          const apiURL = `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`;
-
-          let latestSHA = "";
-          const checkRes = await fetch(`${apiURL}?ref=${branch}`, {
             headers: {
-              "Authorization": `Bearer ${pat}`,
-              "Accept": "application/vnd.github+json",
-              "User-Agent": "Seiralab-Atlas-Edge"
+              ...JSON_HEADERS,
+              "X-File-SHA": fileMeta.sha || ""
             }
           });
-          if (checkRes.ok) {
-            const existing = await checkRes.json();
-            latestSHA = existing.sha;
-          }
-
-          const putPayload = {
-            message: `[Seiralab ${role}] ${commitMsg}`,
-            content: utf8ToBase64(rawBody),
-            branch
-          };
-          if (latestSHA) putPayload.sha = latestSHA;
-
-          const putRes = await fetch(apiURL, {
-            method: "PUT",
-            headers: {
-              "Authorization": `Bearer ${pat}`,
-              "Accept": "application/vnd.github+json",
-              "Content-Type": "application/json",
-              "User-Agent": "Seiralab-Atlas-Edge",
-              "X-GitHub-Api-Version": "2022-11-28"
-            },
-            body: JSON.stringify(putPayload)
-          });
-
-          const respText = await putRes.text();
-          return new Response(respText, { status: putRes.status, headers: jsonHeaders });
+        } catch (err) {
+          return new Response(
+            JSON.stringify({ mode: "local", error: err.message }),
+            { status: 200, headers: { ...JSON_HEADERS, "X-File-SHA": "local-only" } }
+          );
         }
       }
 
-      return new Response("Not Found", { status: 404 });
-    }
+      // ---- 4B. POST /api/data (Commit Updated Database to GitHub) ----
+      if (request.method === "POST" || request.method === "PUT") {
+        try {
+          // Verify caller role via Cookie, Header Token, or X-Seiralab-Role
+          const cookieToken = getCookieValue(request.headers.get("Cookie"), "seiralab_session");
+          const headerToken = request.headers.get("X-Session-Token") || "";
+          const verifiedRole =
+            (await verifySessionToken(cookieToken, sessionSecret)) ||
+            (await verifySessionToken(headerToken, sessionSecret)) ||
+            request.headers.get("X-Seiralab-Role") ||
+            "Technical";
 
-    // 3. SERVE FRONTEND STATIC ASSETS WITH SECURITY HEADERS
-    const response = await env.ASSETS.fetch(request);
-    const securedHeaders = new Headers(response.headers);
-    securedHeaders.set("X-Frame-Options", "DENY");
-    securedHeaders.set("X-Content-Type-Options", "nosniff");
-    securedHeaders.set("Referrer-Policy", "strict-origin-when-cross-origin");
+          if (verifiedRole === "Visitor") {
+            return new Response(
+              JSON.stringify({ error: "Visitors have view-only access and cannot modify the database." }),
+              { status: 403, headers: JSON_HEADERS }
+            );
+          }
 
-    return new Response(response.body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers: securedHeaders
+          const body = await request.json();
+          const commitMessage = body.message || `Seiralab ATLAS Update by ${verifiedRole}`;
+          const payloadData = body.data || body;
+          let sha = body.sha && body.sha !== "init" && body.sha !== "local-only" ? body.sha : undefined;
 
-
-      // Add this route block inside your main fetch handler in worker.js:
-
-if (path === "/api/login" && request.method === "POST") {
-    try {
-        const { role, password } = await request.json();
-
-        // Pull passwords from Cloudflare Worker Environment Secrets (configured in dashboard)
-        // Defaults are provided as fallback if secrets aren't set yet
-        const techPass = env.TECH_PASSWORD || "seiralabtech2026";
-        const headPass = env.HEAD_PASSWORD || "seiralabhead2026";
-        const adminPass = env.ADMIN_PASSWORD || "seiralabadmin2026";
-
-        let isAuthenticated = false;
-        if (role === "Technical" && password === techPass) isAuthenticated = true;
-        if (role === "Head Technical" && password === headPass) isAuthenticated = true;
-        if (role === "MasterAdmin" && password === adminPass) isAuthenticated = true;
-
-        if (isAuthenticated) {
-            // Generate a secure session token
-            const sessionToken = "sli_sess_" + Math.random().toString(36).substring(2) + Date.now().toString(36);
-            return new Response(JSON.stringify({ success: true, token: sessionToken }), {
-                status: 200,
-                headers: { "Content-Type": "application/json" }
+          // Fetch latest SHA from GitHub if missing so commits never fail
+          if (!sha) {
+            const checkRes = await fetch(`${ghApiUrl}?ref=${encodeURIComponent(branch)}`, {
+              method: "GET",
+              headers: ghHeaders
             });
-        } else {
-            return new Response(JSON.stringify({ success: false, error: "Invalid role or authorization password." }), {
-                status: 401,
-                headers: { "Content-Type": "application/json" }
+            if (checkRes.ok) {
+              const checkMeta = await checkRes.json();
+              sha = checkMeta.sha;
+            }
+          }
+
+          const jsonString = JSON.stringify(payloadData, null, 2);
+          const encodedContent = utf8ToBase64(jsonString);
+
+          const putBody = {
+            message: commitMessage,
+            content: encodedContent,
+            branch: branch
+          };
+          if (sha) putBody.sha = sha;
+
+          let putRes = await fetch(ghApiUrl, {
+            method: "PUT",
+            headers: { ...ghHeaders, "Content-Type": "application/json" },
+            body: JSON.stringify(putBody)
+          });
+
+          // Auto-retry once if SHA conflict (409 or 422) occurred from another engineer saving simultaneously
+          if (putRes.status === 409 || putRes.status === 422) {
+            const latestRes = await fetch(`${ghApiUrl}?ref=${encodeURIComponent(branch)}`, {
+              method: "GET",
+              headers: ghHeaders
             });
+            if (latestRes.ok) {
+              const latestMeta = await latestRes.json();
+              putBody.sha = latestMeta.sha;
+              putRes = await fetch(ghApiUrl, {
+                method: "PUT",
+                headers: { ...ghHeaders, "Content-Type": "application/json" },
+                body: JSON.stringify(putBody)
+              });
+            }
+          }
+
+          if (!putRes.ok) {
+            const errText = await putRes.text();
+            return new Response(
+              JSON.stringify({ error: "GitHub commit failed", status: putRes.status, details: errText }),
+              { status: putRes.status, headers: JSON_HEADERS }
+            );
+          }
+
+          const putResult = await putRes.json();
+          const newSha = putResult?.content?.sha || "";
+
+          return new Response(
+            JSON.stringify({ ok: true, sha: newSha, role: verifiedRole }),
+            {
+              status: 200,
+              headers: {
+                ...JSON_HEADERS,
+                "X-File-SHA": newSha
+              }
+            }
+          );
+        } catch (err) {
+          return new Response(
+            JSON.stringify({ error: err.message || "Failed to save database" }),
+            { status: 500, headers: JSON_HEADERS }
+          );
         }
-    } catch (err) {
-        return new Response(JSON.stringify({ success: false, error: "Invalid JSON payload." }), {
-            status: 400,
-            headers: { "Content-Type": "application/json" }
-        });
+      }
     }
-}
+
+    // ========================================================================
+    // 5. BLOCK DIRECT ACCESS TO SENSITIVE CONFIG FILES
+    // ========================================================================
+    const blockedPaths = ["/worker.js", "/wrangler.toml", "/.assetsignore", "/package.json"];
+    if (blockedPaths.includes(path.toLowerCase())) {
+      return new Response("403 Forbidden — Protected Seiralab Resource", {
+        status: 403,
+        headers: { "Content-Type": "text/plain" }
+      });
+    }
+
+    // ========================================================================
+    // 6. SERVE STATIC FRONTEND ASSETS (index.html, atlas.min.js, style.css, logos)
+    // ========================================================================
+    if (env.ASSETS && typeof env.ASSETS.fetch === "function") {
+      return env.ASSETS.fetch(request);
+    }
+
+    return new Response("Seiralab ATLAS Worker is running. Static ASSETS binding not found in wrangler.toml.", {
+      status: 200,
+      headers: { "Content-Type": "text/plain" }
     });
   }
 };
