@@ -1,8 +1,33 @@
 // ============================================================================
-// SEIRALAB CMMS - FEATURES.JS (ZERO-LAG + INSTALLED DATE + PULL OUT + LIVE ACTIONS)
+// SEIRALAB CMMS - COMPLETE FEATURES.JS (SYNTAX-VERIFIED & ZERO-CRASH EDITION)
 // ============================================================================
 
 (function () {
+    // 0. IMMEDIATE SAFE ID BRIDGE (Prevents app.js renderDashboard() from crashing on null innerText)
+    function ensureLegacyIdsNeverNull() {
+        if (!document.body) return;
+        const requiredIds = [
+            'statTotal', 'statTotalAssets', 'statOperational', 'statDue', 'statDueSoon',
+            'statOverdue', 'statCritical', 'statComplianceRate', 'statCalTotal', 'statCalDue',
+            'statToolsTotal', 'statToolsOut', 'statToolsReturned', 'urgentTableBody', 'recentActivityFeed'
+        ];
+        let holder = document.getElementById('seiralabSafeIdHolder');
+        if (!holder) {
+            holder = document.createElement('div');
+            holder.id = 'seiralabSafeIdHolder';
+            holder.className = 'hidden';
+            document.body.appendChild(holder);
+        }
+        requiredIds.forEach(id => {
+            if (!document.getElementById(id)) {
+                const el = document.createElement('span');
+                el.id = id;
+                holder.appendChild(el);
+            }
+        });
+    }
+    ensureLegacyIdsNeverNull();
+
     const DEFAULT_TOOL_LOGS = [
         { id: 501, borrower: "Eng. Barzce Barcelona", toolName: "Fluke ESA612 Electrical Safety Analyzer", toolCode: "TL-SL-001", destination: "Cebu City Medical Center — ICU PM", borrowDate: "2026-10-30", borrowTime: "08:30", returnDateTime: "", status: "Borrowed" },
         { id: 502, borrower: "Eng. Kyle the GREAT", toolName: "Digital Optical Tachometer & Pipette Calibrator", toolCode: "TL-SL-004", destination: "God Care Medical Diagnostic — Centrifuge PM", borrowDate: "2026-10-29", borrowTime: "09:15", returnDateTime: "2026-10-29 (5:40 PM)", status: "Returned" }
@@ -31,7 +56,6 @@
         }
     ];
 
-    // Pre-compiled inline SVGs (eliminates lucide.createIcons() lag on large tables)
     const SVG_CLIPBOARD = `<svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></svg>`;
     const SVG_EDIT = `<svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>`;
     const SVG_TRASH = `<svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>`;
@@ -73,8 +97,8 @@
     let currentServiceReportMode = 'register';
     let currentEditingLogId = null;
     let searchDebounceTimer = null;
+    let lastRenderedMenuRole = null;
 
-    // Normalize "Out of Service" / "Decommissioned" -> "PULL OUT"
     function normalizeStatusLabel(rawStatus) {
         const s = String(rawStatus || 'Operational').trim();
         const low = s.toLowerCase();
@@ -90,9 +114,9 @@
         return 'Operational';
     }
 
-    // Update all Status dropdowns & change "NEXT PM DUE" header to "INSTALLED DATE"
     function enforceInstalledDateAndPullOutUI() {
         document.querySelectorAll('select').forEach(sel => {
+            if (sel.id === 'accessRoleSelect') return;
             Array.from(sel.options).forEach(opt => {
                 const txt = opt.textContent.trim().toLowerCase();
                 const val = opt.value.trim().toLowerCase();
@@ -103,46 +127,21 @@
             });
         });
 
-        const invThs = document.querySelectorAll('#inventory table thead th');
-        invThs.forEach(th => {
+        document.querySelectorAll('#inventory table thead th').forEach(th => {
             const label = th.innerText.trim().toUpperCase();
             if (label.includes('NEXT PM') || label === 'DUE DATE') {
                 th.innerText = 'INSTALLED DATE';
             }
         });
     }
-// Safe bridge so app.js renderDashboard() never throws "Cannot set properties of null (setting 'innerText')"
-function ensureLegacyDashboardIdsExist() {
-    const requiredIds = [
-        'statTotal', 'statTotalAssets', 'statOperational', 'statDue', 'statDueSoon',
-        'statOverdue', 'statCritical', 'statComplianceRate', 'statCalTotal', 'statCalDue',
-        'statToolsTotal', 'statToolsOut', 'statToolsReturned'
-    ];
-    let hiddenHolder = document.getElementById('legacyStatFallbackHolder');
-    if (!hiddenHolder && document.body) {
-        hiddenHolder = document.createElement('div');
-        hiddenHolder.id = 'legacyStatFallbackHolder';
-        hiddenHolder.className = 'hidden';
-        document.body.appendChild(hiddenHolder);
-    }
-    if (!hiddenHolder) return;
 
-    requiredIds.forEach(id => {
-        if (!document.getElementById(id)) {
-            const span = document.createElement('span');
-            span.id = id;
-            hiddenHolder.appendChild(span);
-        }
-    });
-}
-ensureLegacyDashboardIdsExist();
     // ========================================================================
-    // 0. SELF-HEALING MODALS
+    // 1. SELF-HEALING MODALS
     // ========================================================================
     function ensureFeatureModalsExist() {
         if (!document.body) return;
+        ensureLegacyIdsNeverNull();
 
-        // 0A. Dedicated Edit Equipment Modal (Makes Pencil Edit Button Work on All 648+ Items)
         if (!document.getElementById('seiralabEditEquipmentModal')) {
             const editEqHTML = `
             <div id="seiralabEditEquipmentModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[115] hidden flex items-center justify-center p-4">
@@ -159,35 +158,35 @@ ensureLegacyDashboardIdsExist();
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                             <div>
                                 <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Equipment Name *</label>
-                                <input type="text" id="editAssetName" required class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                                <input type="text" id="editAssetName" required class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm">
                             </div>
                             <div>
                                 <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Model *</label>
-                                <input type="text" id="editAssetModel" required class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                                <input type="text" id="editAssetModel" required class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm">
                             </div>
                         </div>
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                             <div>
                                 <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Serial / ID *</label>
-                                <input type="text" id="editAssetSerial" required class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-teal-500">
+                                <input type="text" id="editAssetSerial" required class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono">
                             </div>
                             <div>
                                 <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Installed Date *</label>
-                                <input type="date" id="editAssetInstalledDate" required class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                                <input type="date" id="editAssetInstalledDate" required class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm">
                             </div>
                         </div>
                         <div>
                             <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Hospital / Laboratory Facility *</label>
-                            <input type="text" id="editAssetFacility" required class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                            <input type="text" id="editAssetFacility" required class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm">
                         </div>
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                             <div>
                                 <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Department / Section *</label>
-                                <input type="text" id="editAssetDept" required class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                                <input type="text" id="editAssetDept" required class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm">
                             </div>
                             <div>
                                 <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Status *</label>
-                                <select id="editAssetStatus" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500">
+                                <select id="editAssetStatus" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm font-semibold">
                                     <option value="Operational">Operational</option>
                                     <option value="Maintenance Due">Maintenance Due</option>
                                     <option value="Under Repair">Under Repair</option>
@@ -196,8 +195,8 @@ ensureLegacyDashboardIdsExist();
                             </div>
                         </div>
                         <div class="pt-3 flex items-center justify-end space-x-2.5 border-t border-slate-100">
-                            <button type="button" onclick="closeInventoryEditModal()" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-lg cursor-pointer">Cancel</button>
-                            <button type="submit" class="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs rounded-lg shadow-xs cursor-pointer">Save Equipment Changes</button>
+                            <button type="button" onclick="closeInventoryEditModal()" class="px-4 py-2 bg-slate-100 text-slate-700 font-semibold text-xs rounded-lg cursor-pointer">Cancel</button>
+                            <button type="submit" class="px-4 py-2 bg-teal-600 text-white font-semibold text-xs rounded-lg cursor-pointer">Save Equipment Changes</button>
                         </div>
                     </form>
                 </div>
@@ -205,48 +204,47 @@ ensureLegacyDashboardIdsExist();
             document.body.insertAdjacentHTML('beforeend', editEqHTML);
         }
 
-        // 1. Borrow Tool Modal
         if (!document.getElementById('borrowToolModal')) {
             const toolModalHTML = `
             <div id="borrowToolModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
                 <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
                     <div class="flex items-center justify-between pb-4 border-b border-slate-100">
-                        <h3 id="borrowToolModalTitle" class="font-bold text-slate-900 text-lg">Borrow Tool / Test Kit from Biomed Office</h3>
+                        <h3 class="font-bold text-slate-900 text-lg">Borrow Tool / Test Kit from Biomed Office</h3>
                         <button type="button" onclick="closeBorrowToolModal()" class="text-slate-400 hover:text-slate-600 p-1 text-xl leading-none cursor-pointer">&times;</button>
                     </div>
                     <form id="borrowToolForm" onsubmit="saveToolBorrow(event)" class="space-y-4 pt-4">
                         <input type="hidden" id="editToolLogId" value="">
                         <div>
-                            <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Borrower Name (Engineer / Staff) *</label>
+                            <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Borrower Name *</label>
                             <input type="text" id="toolBorrower" required placeholder="e.g., Eng. Barzce Barcelona" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm">
                         </div>
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div>
-                                <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Tool / Kit Name *</label>
+                                <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Tool / Kit Name *</label>
                                 <input type="text" id="toolName" required placeholder="e.g., Fluke 87V Multimeter" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm">
                             </div>
                             <div>
-                                <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Tool ID / Serial No. *</label>
+                                <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Tool ID / Serial No. *</label>
                                 <input type="text" id="toolCode" required placeholder="e.g., TL-SL-004" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm">
                             </div>
                         </div>
                         <div>
-                            <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Destination Hospital / Lab & Purpose *</label>
+                            <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Destination Hospital / Lab & Purpose *</label>
                             <input type="text" id="toolDestination" required placeholder="e.g., Cebu City Medical Center - PM" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm">
                         </div>
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div>
-                                <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Date Borrowed *</label>
+                                <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Date Borrowed *</label>
                                 <input type="date" id="toolBorrowDate" required class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm">
                             </div>
                             <div>
-                                <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Time Borrowed *</label>
+                                <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Time Borrowed *</label>
                                 <input type="time" id="toolBorrowTime" required class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm">
                             </div>
                         </div>
                         <div class="pt-4 flex items-center justify-end space-x-3">
                             <button type="button" onclick="closeBorrowToolModal()" class="px-4 py-2 bg-slate-100 text-slate-700 font-medium text-sm rounded-lg cursor-pointer">Cancel</button>
-                            <button type="submit" id="borrowToolSubmitBtn" class="px-4 py-2 bg-teal-600 text-white font-medium text-sm rounded-lg cursor-pointer">Record Check-Out</button>
+                            <button type="submit" class="px-4 py-2 bg-teal-600 text-white font-medium text-sm rounded-lg cursor-pointer">Record Check-Out</button>
                         </div>
                     </form>
                 </div>
@@ -254,7 +252,6 @@ ensureLegacyDashboardIdsExist();
             document.body.insertAdjacentHTML('beforeend', toolModalHTML);
         }
 
-        // 2. Official Certificate of Calibration Modal
         if (!document.getElementById('seiralabCalibrationCertModal')) {
             if (!document.getElementById('seiralabCalCertPrintStyle')) {
                 const printStyle = document.createElement('style');
@@ -294,7 +291,7 @@ ensureLegacyDashboardIdsExist();
                 <div id="calCertPaperSheet" class="w-full max-w-3xl bg-white shadow-2xl border border-slate-300 rounded-b-2xl px-8 sm:px-14 py-10 text-sm text-slate-900 mb-10 flex flex-col justify-between min-h-[860px]">
                     <div>
                         <div class="flex justify-center mb-6">
-                            <img src="./seiralab-logo.jpg" alt="Seiralab" class="h-20 sm:h-24 w-auto object-contain" onerror="this.onerror=null; this.src='./seiralab-logo.gIH9ySyn.jpg';">
+                            <img src="./seiralab-logo.jpg" alt="Seiralab" class="h-20 sm:h-24 w-auto object-contain" onerror="this.style.display='none'">
                         </div>
                         <h1 class="text-xl sm:text-2xl font-bold text-center tracking-[0.28em] uppercase text-black my-7">CERTIFICATE OF CALIBRATION</h1>
                         <div class="space-y-1.5 text-sm max-w-xl">
@@ -344,7 +341,6 @@ ensureLegacyDashboardIdsExist();
             document.body.insertAdjacentHTML('beforeend', calCertModalHTML);
         }
 
-        // 3. Calibration Edit Request Modal
         if (!document.getElementById('calEditRequestModal')) {
             const modalHtml = `
             <div id="calEditRequestModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-xs z-[130] hidden flex items-center justify-center p-4">
@@ -358,11 +354,11 @@ ensureLegacyDashboardIdsExist();
                     </div>
                     <form onsubmit="submitCalibrationEditRequest(event)" class="space-y-4 pt-4">
                         <div>
-                            <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Requested By *</label>
+                            <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Requested By *</label>
                             <input type="text" id="calReqTechName" required placeholder="e.g., Eng. Barzce Barcelona" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm">
                         </div>
                         <div>
-                            <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Reason for Editing *</label>
+                            <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Reason for Editing *</label>
                             <textarea id="calReqReason" rows="3" required placeholder="Reason..." class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm"></textarea>
                         </div>
                         <div class="pt-2 flex items-center justify-end space-x-2.5">
@@ -375,7 +371,6 @@ ensureLegacyDashboardIdsExist();
             document.body.insertAdjacentHTML('beforeend', modalHtml);
         }
 
-        // 4. Official Seiralab Service Report Modal
         if (!document.getElementById('seiralabServiceReportModal')) {
             if (!document.getElementById('seiralabServiceReportPrintStyle')) {
                 const style = document.createElement('style');
@@ -416,7 +411,7 @@ ensureLegacyDashboardIdsExist();
 
                 <div id="srPaperSheet" class="w-full max-w-4xl bg-white shadow-2xl border border-slate-300 rounded-b-2xl p-6 sm:p-10 text-sm leading-snug mb-10">
                     <div class="flex flex-col items-center justify-center text-center pb-1">
-                        <img src="./seiralab-logo.jpg" alt="Seiralab" class="h-20 sm:h-24 w-auto object-contain mx-auto" onerror="this.onerror=null; this.src='./seiralab-logo.gIH9ySyn.jpg';">
+                        <img src="./seiralab-logo.jpg" alt="Seiralab" class="h-20 sm:h-24 w-auto object-contain mx-auto" onerror="this.style.display='none'">
                         <p class="text-xs sm:text-[13px] text-slate-900 mt-1.5">Unit 1-6, Level 2, MGM Bldg., Gensan Drive, Brgy. Sto. Niño,<br>City of Koronadal, South Cotabato, 9506</p>
                     </div>
                     <div class="relative flex items-center justify-center my-4">
@@ -497,7 +492,6 @@ ensureLegacyDashboardIdsExist();
             document.body.insertAdjacentHTML('beforeend', srModalHTML);
         }
 
-        // 5. Service Report Edit Request Modal
         if (!document.getElementById('srEditRequestModal')) {
             const modalHtml = `
             <div id="srEditRequestModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-xs z-[130] hidden flex items-center justify-center p-4">
@@ -511,11 +505,11 @@ ensureLegacyDashboardIdsExist();
                     </div>
                     <form onsubmit="submitTechnicalEditRequest(event)" class="space-y-4 pt-4">
                         <div>
-                            <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Requested By (Engineer) *</label>
+                            <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Requested By (Engineer) *</label>
                             <input type="text" id="srReqEngineerName" required placeholder="e.g., Eng. Barzce Barcelona" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm">
                         </div>
                         <div>
-                            <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Reason for Editing *</label>
+                            <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Reason for Editing *</label>
                             <textarea id="srReqReasonInput" rows="3" required placeholder="State what needs to be updated..." class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm"></textarea>
                         </div>
                         <div class="pt-2 flex items-center justify-end space-x-2.5">
@@ -542,7 +536,7 @@ ensureLegacyDashboardIdsExist();
     window.syncCalLotFooter = syncCalLotFooter;
 
     // ========================================================================
-    // 1. NOTIFICATIONS (Fast Batch Join)
+    // 2. NOTIFICATIONS
     // ========================================================================
     function buildSystemNotifications() {
         const list = document.getElementById('notificationList');
@@ -592,16 +586,16 @@ ensureLegacyDashboardIdsExist();
 
     function openNotificationModal() { buildSystemNotifications(); document.getElementById('notificationModal')?.classList.remove('hidden'); }
     function closeNotificationModal() { document.getElementById('notificationModal')?.classList.add('hidden'); }
-    function jumpFromNotification(tabId) { closeNotificationModal(); if (typeof window.switchTab === 'function') window.switchTab(tabId); }
+    function jumpFromNotification(tabId) { closeNotificationModal(); masterSwitchTab(tabId); }
 
     // ========================================================================
-    // 2. CALIBRATION REPORTS & OFFICIAL CERTIFICATE OF CALIBRATION
+    // 3. CALIBRATION REPORTS & OFFICIAL CERTIFICATE OF CALIBRATION
     // ========================================================================
     function upgradeCalibrationToolbarUI() {
         ensureFeatureModalsExist();
         const calHeader = document.querySelector('#calibration > div:first-child');
         if (!calHeader) return;
-        let calToolbar = calHeader.querySelector('div:nth-child(2)');
+        const calToolbar = calHeader.querySelector('div:nth-child(2)');
         if (!calToolbar) return;
 
         if (!calToolbar.querySelector('#btnAddCalibrationReport')) {
@@ -906,7 +900,7 @@ ensureLegacyDashboardIdsExist();
     }
 
     // ========================================================================
-    // 3. BIOMED OFFICE TOOL LOGBOOK
+    // 4. BIOMED OFFICE TOOL LOGBOOK
     // ========================================================================
     function formatTime12Hr(timeStr) {
         if (!timeStr) return '';
@@ -1006,7 +1000,7 @@ ensureLegacyDashboardIdsExist();
     }
 
     // ========================================================================
-    // 4. EXACT installation.xls PARSER + ZERO-LAG INVENTORY SEARCH & ACTIONS
+    // 5. EXACT installation.xls PARSER + ZERO-LAG INVENTORY SEARCH & ACTIONS
     // ========================================================================
     function ensureSheetJSLoaded() {
         return new Promise((resolve, reject) => {
@@ -1134,7 +1128,6 @@ ensureLegacyDashboardIdsExist();
                 changed = true;
             }
 
-            // Ensure installDate & PULL OUT status are normalized
             const normalizedSt = normalizeStatusLabel(item.status);
             if (item.status !== normalizedSt) {
                 item.status = normalizedSt;
@@ -1379,8 +1372,8 @@ ensureLegacyDashboardIdsExist();
 
             rebuildHospitalAndDeptFilters();
             renderFullSearchableInventoryTable();
-            if (typeof renderDashboard === 'function') renderDashboard();
-            if (typeof renderScheduleCards === 'function') renderScheduleCards();
+            syncDashboardCountersAndTables();
+            renderFullPMScheduleCards();
             buildSystemNotifications();
 
             const siteCount = new Set(importedList.map(e => e.facility).filter(Boolean)).size;
@@ -1422,7 +1415,6 @@ ensureLegacyDashboardIdsExist();
         }
     }
 
-    // Fast, Zero-Lag Inventory Table Renderer (Uses .map().join('') + Inline SVGs + INSTALLED DATE + PULL OUT)
     function renderFullSearchableInventoryTable() {
         const invSection = document.getElementById('inventory');
         if (!invSection) return;
@@ -1465,9 +1457,8 @@ ensureLegacyDashboardIdsExist();
             return;
         }
 
-        // Render up to 100 rows instantly via single string batch (zero DOM thrashing)
         const displayLimit = query ? 150 : 80;
-        const rowsHTML = filtered.slice(0, displayLimit).map(item => {
+        tbody.innerHTML = filtered.slice(0, displayLimit).map(item => {
             const deptName = item.department || item.dept || 'Clinical Laboratory';
             const locName = item.location || deptName;
             const status = normalizeStatusLabel(item.status);
@@ -1502,10 +1493,10 @@ ensureLegacyDashboardIdsExist();
                 <td class="p-4 font-mono text-xs font-semibold text-slate-700">${installedDate}</td>
                 <td class="p-4 text-right">
                     <div class="inline-flex items-center justify-end space-x-1.5">
-                        <button type="button" onclick="openInventoryServiceReport('${safeId}')" class="p-1.5 bg-teal-50 hover:bg-teal-100 text-teal-700 rounded-lg transition-colors cursor-pointer" title="Create Service Report for this Machine">
+                        <button type="button" onclick="openInventoryServiceReport('${safeId}')" class="p-1.5 bg-teal-50 hover:bg-teal-100 text-teal-700 rounded-lg transition-colors cursor-pointer" title="Create Service Report">
                             ${SVG_CLIPBOARD}
                         </button>
-                        <button type="button" onclick="openInventoryEditModal('${safeId}')" class="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors cursor-pointer" title="Edit Equipment Details">
+                        <button type="button" onclick="openInventoryEditModal('${safeId}')" class="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors cursor-pointer" title="Edit Equipment">
                             ${SVG_EDIT}
                         </button>
                         <button type="button" onclick="deleteInventoryAsset('${safeId}')" class="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg transition-colors cursor-pointer" title="Delete Equipment">
@@ -1515,11 +1506,8 @@ ensureLegacyDashboardIdsExist();
                 </td>
             </tr>`;
         }).join('');
-
-        tbody.innerHTML = rowsHTML;
     }
 
-    // Action Button 1 (Green Clipboard Icon): Open Service Report Pre-Filled With This Machine!
     function openInventoryServiceReport(eqId) {
         if (isVisitorUser()) {
             if (typeof showNotificationToast === 'function') showNotificationToast('Visitors have view-only access.', true);
@@ -1539,7 +1527,6 @@ ensureLegacyDashboardIdsExist();
         document.getElementById('srEqArea2').value = `Installed: ${item.installDate || item.lastPM || 'N/A'} (${normalizeStatusLabel(item.status)})`;
     }
 
-    // Action Button 2 (Pencil Edit Icon): Open Dedicated Edit Asset Modal
     function openInventoryEditModal(eqId) {
         if (isVisitorUser()) {
             if (typeof showNotificationToast === 'function') showNotificationToast('Visitors have view-only access.', true);
@@ -1604,8 +1591,8 @@ ensureLegacyDashboardIdsExist();
         closeInventoryEditModal();
         rebuildHospitalAndDeptFilters();
         renderFullSearchableInventoryTable();
-        if (typeof renderDashboard === 'function') renderDashboard();
-        if (typeof renderScheduleCards === 'function') renderScheduleCards();
+        syncDashboardCountersAndTables();
+        renderFullPMScheduleCards();
 
         if (typeof showNotificationToast === 'function') {
             showNotificationToast(`Updated ${updatedName} (${updatedModel})!`);
@@ -1615,7 +1602,6 @@ ensureLegacyDashboardIdsExist();
         }
     }
 
-    // Action Button 3 (Trash Delete Icon)
     async function deleteInventoryAsset(eqId) {
         if (!isHeadOrAdminUser()) {
             if (typeof showNotificationToast === 'function') showNotificationToast('Only Head Technical & MasterAdmin can delete equipment.', true);
@@ -1632,8 +1618,8 @@ ensureLegacyDashboardIdsExist();
 
         rebuildHospitalAndDeptFilters();
         renderFullSearchableInventoryTable();
-        if (typeof renderDashboard === 'function') renderDashboard();
-        if (typeof renderScheduleCards === 'function') renderScheduleCards();
+        syncDashboardCountersAndTables();
+        renderFullPMScheduleCards();
         if (typeof showNotificationToast === 'function') showNotificationToast(`Deleted ${target.name}.`);
         if (typeof pushToGitHub === 'function') await pushToGitHub(`Delete Equipment: ${target.name} (${target.serial})`);
     }
@@ -1648,7 +1634,6 @@ ensureLegacyDashboardIdsExist();
         if (searchInput && !searchInput.dataset.boundDebouncedSearch) {
             searchInput.dataset.boundDebouncedSearch = 'true';
             searchInput.placeholder = 'Search by equipment, model, serial, or hospital...';
-            // Remove inline onkeyup from HTML if present so it doesn't double-fire app.js
             searchInput.removeAttribute('onkeyup');
             searchInput.removeAttribute('oninput');
             searchInput.addEventListener('input', () => {
@@ -1959,6 +1944,7 @@ ensureLegacyDashboardIdsExist();
         closeServiceReportModal();
         if (typeof window.renderHistoryTable === 'function') window.renderHistoryTable();
         upgradeMaintenanceHistoryCertificateButtons();
+        syncDashboardCountersAndTables();
         if (typeof showNotificationToast === 'function') showNotificationToast(`Saved Service Report #${payload.reportNo}!`);
         if (typeof pushToGitHub === 'function') await pushToGitHub(commitMsg);
     }
@@ -2095,123 +2081,10 @@ ensureLegacyDashboardIdsExist();
         });
     }
 
-    // Export all handlers globally
-    window.renderInventoryTable = renderFullSearchableInventoryTable;
-    window.populateFacilityFilter = rebuildHospitalAndDeptFilters;
-    window.openInventoryServiceReport = openInventoryServiceReport;
-    window.openInventoryEditModal = openInventoryEditModal;
-    window.closeInventoryEditModal = closeInventoryEditModal;
-    window.saveInventoryEditedAsset = saveInventoryEditedAsset;
-    window.deleteInventoryAsset = deleteInventoryAsset;
-    window.editEquipment = openInventoryEditModal;
-    window.openPMModal = openInventoryServiceReport;
-
-    window.openNotificationModal = openNotificationModal;
-    window.closeNotificationModal = closeNotificationModal;
-    window.buildSystemNotifications = buildSystemNotifications;
-    window.renderNotifications = buildSystemNotifications;
-
-    window.renderCalibrationTable = renderCalibrationTable;
-    window.openAddCalibrationModal = openAddCalibrationModal;
-    window.downloadCalibrationCert = downloadCalibrationCert;
-    window.openLatestCalibrationCertForPrint = openLatestCalibrationCertForPrint;
-    window.openEditCalibrationModal = openEditCalibrationModal;
-    window.submitCalibrationEditRequest = submitCalibrationEditRequest;
-    window.resolveCalibrationEditRequest = resolveCalibrationEditRequest;
-    window.saveCalibrationCertificateFromTemplate = saveCalibrationCertificateFromTemplate;
-    window.deleteCalibrationReport = deleteCalibrationReport;
-
-    window.renderToolLogsTable = renderToolLogsTable;
-    window.openBorrowToolModal = openBorrowToolModal;
-    window.closeBorrowToolModal = closeBorrowToolModal;
-    window.saveToolBorrow = saveToolBorrow;
-    window.deleteToolLog = deleteToolLog;
-    window.markToolReturned = markToolReturned;
-
-    window.triggerAssetImportPicker = triggerAssetImportPicker;
-    window.importAssetData = triggerAssetImportPicker;
-    window.triggerImport = triggerAssetImportPicker;
-    window.handleImportFile = handleAssetDataFileImport;
-
-    window.openServiceReportTemplate = openServiceReportForViewing;
-    window.openNewServiceReportRegistration = openNewServiceReportRegistration;
-    window.openServiceReportForViewing = openServiceReportForViewing;
-    window.requestEditServiceReport = requestEditServiceReport;
-    window.closeEditRequestModal = closeEditRequestModal;
-    window.submitTechnicalEditRequest = submitTechnicalEditRequest;
-    window.resolveServiceReportEditRequest = resolveServiceReportEditRequest;
-    window.deleteServiceReportLog = deleteServiceReportLog;
-    window.saveRegisteredServiceReport = saveRegisteredServiceReport;
-    window.closeServiceReportModal = closeServiceReportModal;
-    window.upgradeMaintenanceHistoryCertificateButtons = upgradeMaintenanceHistoryCertificateButtons;
-
-    function bootAllSeiralabFeatures() {
-        ensureFeatureModalsExist();
-        removeRiskFromAllUI();
-        autoRepairScrambledInventoryData();
-        relocateImportAssetButtonAndFixInput();
-        rebuildHospitalAndDeptFilters();
-        renderFullSearchableInventoryTable();
-        upgradeCalibrationToolbarUI();
-        renderCalibrationTable();
-        renderToolLogsTable();
-        upgradeMaintenanceHistoryCertificateButtons();
-        buildSystemNotifications();
-    }
-
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', bootAllSeiralabFeatures);
-    } else {
-        bootAllSeiralabFeatures();
-    }
-
-    // Lightweight watchdog every 1.2s (only touches DOM if an element is actually missing)
-    setInterval(() => {
-        enforceInstalledDateAndPullOutUI();
-        if (!document.getElementById('btnOpenBlankServiceReport') ||
-            document.querySelector('#historyTableBody button')?.innerText.trim() === 'Certificate') {
-            upgradeMaintenanceHistoryCertificateButtons();
-        }
-        if (!document.getElementById('btnInventoryImportAsset')) {
-            relocateImportAssetButtonAndFixInput();
-        }
-        if (!document.getElementById('btnAddCalibrationReport')) {
-            upgradeCalibrationToolbarUI();
-        }
-    }, 1200);
-})();
-    //     // ========================================================================
-    // 7. FIXED ROLE VISIBILITY, ACCOUNT MENU, SELF-CONTAINED TAB SWITCHER
-    //    & DASHBOARD KPI COUNTER SYNC (Zero UI Freeze / No 1s Dropdown Reset)
     // ========================================================================
-
-    let lastRenderedMenuRole = null;
-
-    // Prevent app.js from crashing on missing legacy IDs
-    function ensureLegacyIdsNeverNull() {
-        const legacyIds = [
-            'statTotal', 'statTotalAssets', 'statOperational', 'statDue', 'statDueSoon',
-            'statOverdue', 'statCritical', 'statComplianceRate', 'statCalTotal', 'statCalDue',
-            'statToolsTotal', 'statToolsOut', 'statToolsReturned', 'urgentTableBody', 'recentActivityFeed'
-        ];
-        let holder = document.getElementById('seiralabSafeIdHolder');
-        if (!holder && document.body) {
-            holder = document.createElement('div');
-            holder.id = 'seiralabSafeIdHolder';
-            holder.className = 'hidden';
-            document.body.appendChild(holder);
-        }
-        if (!holder) return;
-        legacyIds.forEach(id => {
-            if (!document.getElementById(id)) {
-                const el = document.createElement('div');
-                el.id = id;
-                holder.appendChild(el);
-            }
-        });
-    }
-
-    // Update Dashboard KPI Counters & Critical Table directly from window.equipmentList
+    // 7. STRICT ROLE VISIBILITY, ACCOUNT MENU, SELF-CONTAINED TAB SWITCHER
+    //    & DASHBOARD KPI COUNTER SYNC
+    // ========================================================================
     function syncDashboardCountersAndTables() {
         ensureLegacyIdsNeverNull();
         const list = (window.equipmentList || []).filter(item => normalizeStatusLabel(item.status) !== 'PULL OUT');
@@ -2255,7 +2128,6 @@ ensureLegacyDashboardIdsExist();
         setTxt('statOverdue', overdueOrRepairCount);
         setTxt('statCritical', overdueOrRepairCount);
 
-        // Fix stuck "Syncing DB..." pill if it hasn't updated yet
         const ghText = document.getElementById('ghStatusText');
         const ghDot = document.getElementById('ghStatusDot');
         if (ghText && ghText.innerText.includes('Syncing')) {
@@ -2263,7 +2135,6 @@ ensureLegacyDashboardIdsExist();
             if (ghDot) ghDot.className = 'w-2 h-2 rounded-full bg-emerald-500';
         }
 
-        // Populate Urgent PM Table on Dashboard
         const urgentTbody = document.getElementById('urgentTableBody');
         if (urgentTbody) {
             urgentItems.sort((a, b) => a.diffDays - b.diffDays);
@@ -2288,7 +2159,6 @@ ensureLegacyDashboardIdsExist();
             }
         }
 
-        // Populate Recent Activity Feed on Dashboard
         const feed = document.getElementById('recentActivityFeed');
         if (feed) {
             const logs = (window.historyLogs || []).slice(0, 6);
@@ -2313,7 +2183,6 @@ ensureLegacyDashboardIdsExist();
         const isSupervisor = (role === 'Head Technical' || role === 'MasterAdmin');
         const isVisitor = (!role || role === 'Visitor');
 
-        // 1. Strictly hide Equipment Inventory, Reports & Analytics, and Cloud DB settings for Technical & Visitor
         const tabInventory = document.getElementById('tab-inventory');
         const tabReports = document.getElementById('tab-reports');
         const ghBtn = document.getElementById('ghStatusBtn');
@@ -2322,14 +2191,12 @@ ensureLegacyDashboardIdsExist();
         if (tabReports) tabReports.classList.toggle('hidden', !isSupervisor);
         if (ghBtn) ghBtn.classList.toggle('hidden', !isSupervisor);
 
-        // Bounce Technical/Visitor back to Dashboard if currently on #inventory or #reports
         const invSection = document.getElementById('inventory');
         const repSection = document.getElementById('reports');
         if (!isSupervisor && ((invSection && invSection.classList.contains('active')) || (repSection && repSection.classList.contains('active')))) {
             masterSwitchTab('dashboard');
         }
 
-        // 2. ONLY rebuild the <select> options when the role actually changes (prevents closing dropdown while user taps it!)
         const roleSelect = document.getElementById('accessRoleSelect');
         if (roleSelect && (forceRebuildMenu || lastRenderedMenuRole !== role || roleSelect.options.length <= 1)) {
             lastRenderedMenuRole = role;
@@ -2400,7 +2267,6 @@ ensureLegacyDashboardIdsExist();
         }
     }
 
-    // 3. Populate PM Schedule & Tasks (#scheduleCardsGrid)
     function renderFullPMScheduleCards() {
         const grid = document.getElementById('scheduleCardsGrid') ||
                      document.getElementById('scheduleGrid') ||
@@ -2475,7 +2341,41 @@ ensureLegacyDashboardIdsExist();
         }).join('');
     }
 
-    // 4. Self-Contained Master Tab Switcher (Never fails even if app.js threw an error)
+    function renderReportsAnalyticsSection() {
+        const list = (window.equipmentList || []).filter(item => normalizeStatusLabel(item.status) !== 'PULL OUT');
+        const statusBox = document.getElementById('reportStatusBreakdown');
+        const facBox = document.getElementById('reportFacilityBreakdown');
+
+        if (statusBox) {
+            const counts = { 'Operational': 0, 'Maintenance Due': 0, 'Under Repair': 0 };
+            list.forEach(i => {
+                const st = normalizeStatusLabel(i.status);
+                counts[st] = (counts[st] || 0) + 1;
+            });
+            statusBox.innerHTML = Object.entries(counts).map(([k, v]) => `
+                <div class="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-200/60 text-xs">
+                    <span class="font-semibold text-slate-700">${k}</span>
+                    <span class="font-bold text-slate-900">${v} units</span>
+                </div>
+            `).join('');
+        }
+
+        if (facBox) {
+            const facCounts = {};
+            list.forEach(i => {
+                const f = i.facility || 'Unspecified';
+                facCounts[f] = (facCounts[f] || 0) + 1;
+            });
+            const topFacs = Object.entries(facCounts).sort((a, b) => b[1] - a[1]).slice(0, 8);
+            facBox.innerHTML = topFacs.map(([f, c]) => `
+                <div class="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-200/60 text-xs">
+                    <span class="font-semibold text-slate-700 truncate pr-3">${f}</span>
+                    <span class="font-bold text-teal-700 shrink-0">${c} units</span>
+                </div>
+            `).join('');
+        }
+    }
+
     function masterSwitchTab(tabId) {
         const role = getActiveRole();
         const isSupervisor = (role === 'Head Technical' || role === 'MasterAdmin');
@@ -2486,7 +2386,6 @@ ensureLegacyDashboardIdsExist();
             return;
         }
 
-        // Toggle active section
         document.querySelectorAll('.tab-content').forEach(sec => {
             if (sec.id === tabId) {
                 sec.classList.add('active');
@@ -2497,7 +2396,6 @@ ensureLegacyDashboardIdsExist();
             }
         });
 
-        // Toggle active tab button highlight
         document.querySelectorAll('.tab-btn').forEach(btn => {
             if (btn.id === `tab-${tabId}`) {
                 btn.className = 'tab-btn border-b-2 border-teal-600 text-teal-600 py-3 px-1 text-xs sm:text-sm font-semibold flex items-center space-x-2 whitespace-nowrap cursor-pointer';
@@ -2506,88 +2404,113 @@ ensureLegacyDashboardIdsExist();
             }
         });
 
-        // Render the target tab's fresh content
+        enforceRoleNavigationAndMenuUI(false);
+
         if (tabId === 'dashboard') syncDashboardCountersAndTables();
         if (tabId === 'inventory') renderFullSearchableInventoryTable();
         if (tabId === 'schedule') renderFullPMScheduleCards();
         if (tabId === 'history') {
-            if (typeof origRenderHistoryTable === 'function') {
-                try { origRenderHistoryTable(); } catch (_) {}
+            if (typeof window.renderHistoryTable === 'function') {
+                try { window.renderHistoryTable(); } catch (_) {}
             }
             upgradeMaintenanceHistoryCertificateButtons();
         }
+        if (tabId === 'reports') renderReportsAnalyticsSection();
         if (tabId === 'calibration') renderCalibrationTable();
         if (tabId === 'tools') renderToolLogsTable();
     }
 
+    // Export all handlers globally
     window.switchTab = masterSwitchTab;
     window.renderDashboard = syncDashboardCountersAndTables;
     window.renderScheduleCards = renderFullPMScheduleCards;
     window.enforceRoleNavigationAndMenuUI = enforceRoleNavigationAndMenuUI;
 
-    // Initialize immediately
-    ensureLegacyIdsNeverNull();
-    enforceRoleNavigationAndMenuUI(true);
-    syncDashboardCountersAndTables();
-    renderFullPMScheduleCards();
+    window.renderInventoryTable = renderFullSearchableInventoryTable;
+    window.populateFacilityFilter = rebuildHospitalAndDeptFilters;
+    window.openInventoryServiceReport = openInventoryServiceReport;
+    window.openInventoryEditModal = openInventoryEditModal;
+    window.closeInventoryEditModal = closeInventoryEditModal;
+    window.saveInventoryEditedAsset = saveInventoryEditedAsset;
+    window.deleteInventoryAsset = deleteInventoryAsset;
+    window.editEquipment = openInventoryEditModal;
+    window.openPMModal = openInventoryServiceReport;
 
-    // Check role visibility gently without resetting the <select> DOM unless role changed
-    setInterval(() => {
-        enforceRoleNavigationAndMenuUI(false);
-    }, 1500);
-})();
- flex items-center justify-center space-x-1.5">
-                       ${SVG_CLIPBOARD}
-                       <span>Execute PM &amp; Service Report</span>
-                   </button>`;
+    window.openNotificationModal = openNotificationModal;
+    window.closeNotificationModal = closeNotificationModal;
+    window.buildSystemNotifications = buildSystemNotifications;
+    window.renderNotifications = buildSystemNotifications;
 
-            return `
-                <div class="bg-white rounded-2xl border border-slate-200/90 p-5 shadow-2xs hover:shadow-md transition-shadow flex flex-col justify-between">
-                    <div>
-                        <div class="flex items-start justify-between gap-2 mb-2">
-                            <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${badgeClass}">${badgeText}</span>
-                            <span class="font-mono text-[11px] text-slate-400">SN: ${item.serial}</span>
-                        </div>
-                        <h4 class="font-bold text-slate-900 text-sm sm:text-base">${item.name}</h4>
-                        <p class="text-xs font-semibold text-teal-700 mt-0.5">Model: ${item.model || 'Standard'}</p>
-                        <div class="mt-3 pt-3 border-t border-slate-100 space-y-1 text-xs text-slate-600">
-                            <div><strong class="text-slate-800">Facility:</strong> ${item.facility}</div>
-                            <div><strong class="text-slate-800">Section:</strong> ${item.department || item.dept || 'Clinical Lab'}</div>
-                            <div class="flex items-center justify-between pt-1">
-                                <span><strong class="text-slate-800">Installed:</strong> ${item.installDate || item.lastPM || 'N/A'}</span>
-                                <span><strong class="text-slate-800">Next PM:</strong> <span class="font-mono font-bold">${item.nextDue}</span></span>
-                            </div>
-                        </div>
-                    </div>
-                    ${actionBtn}
-                </div>
-            `;
-        }).join('');
+    window.renderCalibrationTable = renderCalibrationTable;
+    window.openAddCalibrationModal = openAddCalibrationModal;
+    window.downloadCalibrationCert = downloadCalibrationCert;
+    window.openLatestCalibrationCertForPrint = openLatestCalibrationCertForPrint;
+    window.openEditCalibrationModal = openEditCalibrationModal;
+    window.submitCalibrationEditRequest = submitCalibrationEditRequest;
+    window.resolveCalibrationEditRequest = resolveCalibrationEditRequest;
+    window.saveCalibrationCertificateFromTemplate = saveCalibrationCertificateFromTemplate;
+    window.deleteCalibrationReport = deleteCalibrationReport;
+
+    window.renderToolLogsTable = renderToolLogsTable;
+    window.openBorrowToolModal = openBorrowToolModal;
+    window.closeBorrowToolModal = closeBorrowToolModal;
+    window.saveToolBorrow = saveToolBorrow;
+    window.deleteToolLog = deleteToolLog;
+    window.markToolReturned = markToolReturned;
+
+    window.triggerAssetImportPicker = triggerAssetImportPicker;
+    window.importAssetData = triggerAssetImportPicker;
+    window.triggerImport = triggerAssetImportPicker;
+    window.handleImportFile = handleAssetDataFileImport;
+
+    window.openServiceReportTemplate = openServiceReportForViewing;
+    window.openNewServiceReportRegistration = openNewServiceReportRegistration;
+    window.openServiceReportForViewing = openServiceReportForViewing;
+    window.requestEditServiceReport = requestEditServiceReport;
+    window.closeEditRequestModal = closeEditRequestModal;
+    window.submitTechnicalEditRequest = submitTechnicalEditRequest;
+    window.resolveServiceReportEditRequest = resolveServiceReportEditRequest;
+    window.deleteServiceReportLog = deleteServiceReportLog;
+    window.saveRegisteredServiceReport = saveRegisteredServiceReport;
+    window.closeServiceReportModal = closeServiceReportModal;
+    window.upgradeMaintenanceHistoryCertificateButtons = upgradeMaintenanceHistoryCertificateButtons;
+
+    function bootAllSeiralabFeatures() {
+        ensureLegacyIdsNeverNull();
+        ensureFeatureModalsExist();
+        removeRiskFromAllUI();
+        autoRepairScrambledInventoryData();
+        relocateImportAssetButtonAndFixInput();
+        rebuildHospitalAndDeptFilters();
+        renderFullSearchableInventoryTable();
+        upgradeCalibrationToolbarUI();
+        renderCalibrationTable();
+        renderToolLogsTable();
+        upgradeMaintenanceHistoryCertificateButtons();
+        syncDashboardCountersAndTables();
+        renderFullPMScheduleCards();
+        enforceRoleNavigationAndMenuUI(true);
+        buildSystemNotifications();
     }
 
-    // Guard switchTab so Technical/Visitor can never switch to 'inventory' or 'reports'
-    const prevSwitchTab = window.switchTab;
-    window.switchTab = function (tabId) {
-        const role = getActiveRole();
-        const isSupervisor = (role === 'Head Technical' || role === 'MasterAdmin');
-        if ((tabId === 'inventory' || tabId === 'reports') && !isSupervisor) {
-            if (typeof window.showNotificationToast === 'function') {
-                window.showNotificationToast('Access restricted to Head Technical & MasterAdmin.', true);
-            }
-            return;
-        }
-        if (typeof prevSwitchTab === 'function') {
-            prevSwitchTab(tabId);
-        }
-        if (tabId === 'schedule') {
-            renderFullPMScheduleCards();
-        }
-    };
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', bootAllSeiralabFeatures);
+    } else {
+        bootAllSeiralabFeatures();
+    }
 
-    window.renderScheduleCards = renderFullPMScheduleCards;
-    window.enforceRoleNavigationAndMenuUI = enforceRoleNavigationAndMenuUI;
-
-    // Run immediately and keep synchronized with role changes
-    enforceRoleNavigationAndMenuUI();
-    renderFullPMScheduleCards();
-    setInterval(enforceRoleNavigationAndMenuUI, 1000);
+    setInterval(() => {
+        enforceInstalledDateAndPullOutUI();
+        enforceRoleNavigationAndMenuUI(false);
+        if (!document.getElementById('btnOpenBlankServiceReport') ||
+            document.querySelector('#historyTableBody button')?.innerText.trim() === 'Certificate') {
+            upgradeMaintenanceHistoryCertificateButtons();
+        }
+        if (!document.getElementById('btnInventoryImportAsset')) {
+            relocateImportAssetButtonAndFixInput();
+        }
+        if (!document.getElementById('btnAddCalibrationReport')) {
+            upgradeCalibrationToolbarUI();
+        }
+    }, 1200);
+})();
