@@ -1,5 +1,5 @@
 // ============================================================================
-// SEIRALAB CMMS - COMPLETE FEATURES.JS (SYNTAX-VERIFIED & ZERO-CRASH EDITION)
+// SEIRALAB CMMS - COMPLETE FEATURES.JS (ALL-IN-ONE SYNTAX-VERIFIED EDITION)
 // ============================================================================
 
 (function () {
@@ -880,6 +880,7 @@
         localStorage.setItem('seiralab_calibrations', JSON.stringify(window.calibrationList));
         document.getElementById('seiralabCalibrationCertModal')?.classList.add('hidden');
         renderCalibrationTable();
+        renderReportsAnalyticsSection();
         buildSystemNotifications();
         if (typeof showNotificationToast === 'function') showNotificationToast(`Saved Calibration Certificate #${recordPayload.id}!`);
         if (typeof pushToGitHub === 'function') await pushToGitHub(commitAction);
@@ -893,6 +894,7 @@
             window.calibrationList = window.calibrationList.filter(c => String(c.id) !== String(certId));
             localStorage.setItem('seiralab_calibrations', JSON.stringify(window.calibrationList));
             renderCalibrationTable();
+            renderReportsAnalyticsSection();
             buildSystemNotifications();
             if (typeof showNotificationToast === 'function') showNotificationToast(`Deleted Cert #${target.id}`);
             if (typeof pushToGitHub === 'function') await pushToGitHub(`Delete Calibration Cert #${target.id}`);
@@ -1374,6 +1376,7 @@
             renderFullSearchableInventoryTable();
             syncDashboardCountersAndTables();
             renderFullPMScheduleCards();
+            renderReportsAnalyticsSection();
             buildSystemNotifications();
 
             const siteCount = new Set(importedList.map(e => e.facility).filter(Boolean)).size;
@@ -1593,6 +1596,7 @@
         renderFullSearchableInventoryTable();
         syncDashboardCountersAndTables();
         renderFullPMScheduleCards();
+        renderReportsAnalyticsSection();
 
         if (typeof showNotificationToast === 'function') {
             showNotificationToast(`Updated ${updatedName} (${updatedModel})!`);
@@ -1620,6 +1624,7 @@
         renderFullSearchableInventoryTable();
         syncDashboardCountersAndTables();
         renderFullPMScheduleCards();
+        renderReportsAnalyticsSection();
         if (typeof showNotificationToast === 'function') showNotificationToast(`Deleted ${target.name}.`);
         if (typeof pushToGitHub === 'function') await pushToGitHub(`Delete Equipment: ${target.name} (${target.serial})`);
     }
@@ -1704,6 +1709,7 @@
             document.head.appendChild(style);
         }
     }
+
 
     // ========================================================================
     // 6. OFFICIAL SERVICE REPORT SERIES ENGINE (05535+) & EDIT WORKFLOW
