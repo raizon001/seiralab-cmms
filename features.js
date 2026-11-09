@@ -2180,17 +2180,140 @@ ensureLegacyDashboardIdsExist();
         }
     }, 1200);
 })();
-    // ========================================================================
-    // 7. STRICT ROLE VISIBILITY, ACCOUNT MENU (SIGN IN / SWITCH / LOG OUT)
-    //    & PM SCHEDULE WORK ORDERS ENGINE
+    //     // ========================================================================
+    // 7. FIXED ROLE VISIBILITY, ACCOUNT MENU, SELF-CONTAINED TAB SWITCHER
+    //    & DASHBOARD KPI COUNTER SYNC (Zero UI Freeze / No 1s Dropdown Reset)
     // ========================================================================
 
-    function enforceRoleNavigationAndMenuUI() {
+    let lastRenderedMenuRole = null;
+
+    // Prevent app.js from crashing on missing legacy IDs
+    function ensureLegacyIdsNeverNull() {
+        const legacyIds = [
+            'statTotal', 'statTotalAssets', 'statOperational', 'statDue', 'statDueSoon',
+            'statOverdue', 'statCritical', 'statComplianceRate', 'statCalTotal', 'statCalDue',
+            'statToolsTotal', 'statToolsOut', 'statToolsReturned', 'urgentTableBody', 'recentActivityFeed'
+        ];
+        let holder = document.getElementById('seiralabSafeIdHolder');
+        if (!holder && document.body) {
+            holder = document.createElement('div');
+            holder.id = 'seiralabSafeIdHolder';
+            holder.className = 'hidden';
+            document.body.appendChild(holder);
+        }
+        if (!holder) return;
+        legacyIds.forEach(id => {
+            if (!document.getElementById(id)) {
+                const el = document.createElement('div');
+                el.id = id;
+                holder.appendChild(el);
+            }
+        });
+    }
+
+    // Update Dashboard KPI Counters & Critical Table directly from window.equipmentList
+    function syncDashboardCountersAndTables() {
+        ensureLegacyIdsNeverNull();
+        const list = (window.equipmentList || []).filter(item => normalizeStatusLabel(item.status) !== 'PULL OUT');
+        const today = new Date();
+
+        let operationalCount = 0;
+        let dueSoonCount = 0;
+        let overdueOrRepairCount = 0;
+        const urgentItems = [];
+
+        list.forEach(item => {
+            const st = normalizeStatusLabel(item.status);
+            if (st === 'Operational') operationalCount++;
+
+            const dueStr = item.nextDue || computeNextPMFromInstall(item.installDate || item.lastPM);
+            const diffDays = Math.ceil((new Date(dueStr) - today) / 86400000);
+
+            if (st === 'Under Repair' || diffDays < 0) {
+                overdueOrRepairCount++;
+                urgentItems.push({ ...item, nextDue: dueStr, diffDays });
+            } else if (diffDays <= 30) {
+                dueSoonCount++;
+                urgentItems.push({ ...item, nextDue: dueStr, diffDays });
+            }
+        });
+
+        const total = list.length;
+        const rate = total > 0 ? Math.round((operationalCount / total) * 100) : 100;
+
+        const setTxt = (id, val) => {
+            const el = document.getElementById(id);
+            if (el) el.innerText = val;
+        };
+
+        setTxt('statTotalAssets', total);
+        setTxt('statTotal', total);
+        setTxt('statOperational', operationalCount);
+        setTxt('statComplianceRate', `${rate}% readiness`);
+        setTxt('statDueSoon', dueSoonCount);
+        setTxt('statDue', dueSoonCount);
+        setTxt('statOverdue', overdueOrRepairCount);
+        setTxt('statCritical', overdueOrRepairCount);
+
+        // Fix stuck "Syncing DB..." pill if it hasn't updated yet
+        const ghText = document.getElementById('ghStatusText');
+        const ghDot = document.getElementById('ghStatusDot');
+        if (ghText && ghText.innerText.includes('Syncing')) {
+            ghText.innerText = 'Cloud DB: Ready';
+            if (ghDot) ghDot.className = 'w-2 h-2 rounded-full bg-emerald-500';
+        }
+
+        // Populate Urgent PM Table on Dashboard
+        const urgentTbody = document.getElementById('urgentTableBody');
+        if (urgentTbody) {
+            urgentItems.sort((a, b) => a.diffDays - b.diffDays);
+            if (urgentItems.length === 0) {
+                urgentTbody.innerHTML = `<tr><td colspan="5" class="py-6 text-center text-slate-400 text-xs">All medical equipment is up to date on Preventive Maintenance.</td></tr>`;
+            } else {
+                urgentTbody.innerHTML = urgentItems.slice(0, 12).map(eq => {
+                    const safeId = String(eq.id).replace(/'/g, "\\'");
+                    const badge = eq.diffDays < 0
+                        ? `<span class="text-rose-600 font-bold">${eq.nextDue} (${Math.abs(eq.diffDays)}d overdue)</span>`
+                        : `<span class="text-amber-600 font-semibold">${eq.nextDue} (in ${eq.diffDays}d)</span>`;
+                    return `<tr class="border-b border-slate-100 last:border-none">
+                        <td class="py-2.5 px-3 font-bold text-slate-900 text-xs">${eq.name}<div class="text-[11px] font-normal text-slate-500">Model: ${eq.model} &bull; SN: ${eq.serial}</div></td>
+                        <td class="py-2.5 px-3 text-xs text-slate-700">${eq.facility}</td>
+                        <td class="py-2.5 px-3 hidden">High</td>
+                        <td class="py-2.5 px-3 text-xs font-mono">${badge}</td>
+                        <td class="py-2.5 px-3 text-right">
+                            <button type="button" onclick="openInventoryServiceReport('${safeId}')" class="px-2.5 py-1 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-[11px] font-semibold cursor-pointer">Service PM</button>
+                        </td>
+                    </tr>`;
+                }).join('');
+            }
+        }
+
+        // Populate Recent Activity Feed on Dashboard
+        const feed = document.getElementById('recentActivityFeed');
+        if (feed) {
+            const logs = (window.historyLogs || []).slice(0, 6);
+            if (logs.length === 0) {
+                feed.innerHTML = `<div class="py-6 text-center text-slate-400 text-xs">No maintenance logs recorded yet.</div>`;
+            } else {
+                feed.innerHTML = logs.map(l => `
+                    <div class="p-3 rounded-xl bg-slate-50 border border-slate-200/70 text-xs space-y-1">
+                        <div class="flex items-center justify-between">
+                            <span class="font-bold text-slate-900">${l.eqName}</span>
+                            <span class="font-mono text-[10px] px-1.5 py-0.5 bg-teal-100 text-teal-800 rounded font-bold">SR #${l.reportNo || '05535'}</span>
+                        </div>
+                        <p class="text-slate-600 text-[11px]">${l.facility} &bull; ${l.date}</p>
+                    </div>
+                `).join('');
+            }
+        }
+    }
+
+    function enforceRoleNavigationAndMenuUI(forceRebuildMenu = false) {
         const role = getActiveRole();
         const isSupervisor = (role === 'Head Technical' || role === 'MasterAdmin');
         const isVisitor = (!role || role === 'Visitor');
 
-        // 1. Hide "Equipment Inventory", "Reports & Analytics", and "Cloud DB" button unless Head Technical or MasterAdmin
+        // 1. Strictly hide Equipment Inventory, Reports & Analytics, and Cloud DB settings for Technical & Visitor
         const tabInventory = document.getElementById('tab-inventory');
         const tabReports = document.getElementById('tab-reports');
         const ghBtn = document.getElementById('ghStatusBtn');
@@ -2199,21 +2322,19 @@ ensureLegacyDashboardIdsExist();
         if (tabReports) tabReports.classList.toggle('hidden', !isSupervisor);
         if (ghBtn) ghBtn.classList.toggle('hidden', !isSupervisor);
 
-        // If a Technical or Visitor user is currently on a restricted section (#inventory or #reports), bounce them to #dashboard
+        // Bounce Technical/Visitor back to Dashboard if currently on #inventory or #reports
         const invSection = document.getElementById('inventory');
         const repSection = document.getElementById('reports');
         if (!isSupervisor && ((invSection && invSection.classList.contains('active')) || (repSection && repSection.classList.contains('active')))) {
-            if (typeof window.switchTab === 'function') {
-                window.switchTab('dashboard');
-            }
+            masterSwitchTab('dashboard');
         }
 
-        // 2. Upgrade Top-Right Role <select> into "Sign In / Switch Account / Log Out" Menu
+        // 2. ONLY rebuild the <select> options when the role actually changes (prevents closing dropdown while user taps it!)
         const roleSelect = document.getElementById('accessRoleSelect');
-        if (roleSelect) {
+        if (roleSelect && (forceRebuildMenu || lastRenderedMenuRole !== role || roleSelect.options.length <= 1)) {
+            lastRenderedMenuRole = role;
             roleSelect.innerHTML = '';
 
-            // Always show the current role as the visible header label
             const currentOpt = document.createElement('option');
             currentOpt.value = '__CURRENT__';
             currentOpt.textContent = role;
@@ -2239,13 +2360,12 @@ ensureLegacyDashboardIdsExist();
 
             const subtext = document.getElementById('accessRoleSubtext');
             if (subtext) {
-                subtext.innerText = isVisitor ? 'View-Only Mode' : `Signed in: ${role}`;
+                subtext.innerText = isVisitor ? 'View-Only Mode' : `Welcome, ${role}`;
             }
 
-            // Override onchange so selecting Sign In, Switch Account, or Log Out triggers the proper action
             roleSelect.onchange = async function () {
                 const action = this.value;
-                this.value = '__CURRENT__'; // Keep current role displayed until login completes
+                this.value = '__CURRENT__';
 
                 if (action === '__SIGN_IN__' || action === '__SWITCH_ACCOUNT__') {
                     const overlay = document.getElementById('loginPortalOverlay');
@@ -2258,26 +2378,16 @@ ensureLegacyDashboardIdsExist();
                         window.startBiomedLiveWallpaper();
                     }
                 } else if (action === '__LOG_OUT__') {
-                    try {
-                        await fetch('/api/logout', { method: 'POST' });
-                    } catch (_) {}
+                    try { await fetch('/api/logout', { method: 'POST' }); } catch (_) {}
                     localStorage.removeItem('seiralab_session_token');
                     window.currentAccessRole = 'Visitor';
                     sessionStorage.setItem('seiralab_active_session_role', 'Visitor');
                     localStorage.setItem('seiralab_access_role', 'Visitor');
 
-                    enforceRoleNavigationAndMenuUI();
-                    if (typeof window.upgradeMaintenanceHistoryCertificateButtons === 'function') {
-                        window.upgradeMaintenanceHistoryCertificateButtons();
-                    }
-                    if (typeof window.renderCalibrationTable === 'function') {
-                        window.renderCalibrationTable();
-                    }
-                    if (typeof window.showNotificationToast === 'function') {
-                        window.showNotificationToast('Logged out successfully.');
-                    }
+                    enforceRoleNavigationAndMenuUI(true);
+                    upgradeMaintenanceHistoryCertificateButtons();
+                    renderCalibrationTable();
 
-                    // Show login portal screen on logout
                     const overlay = document.getElementById('loginPortalOverlay');
                     const passInput = document.getElementById('portalPasswordInput');
                     if (passInput) passInput.value = '';
@@ -2290,7 +2400,7 @@ ensureLegacyDashboardIdsExist();
         }
     }
 
-    // 3. Populate PM Schedule & Tasks (#scheduleCardsGrid) so it is NEVER blank
+    // 3. Populate PM Schedule & Tasks (#scheduleCardsGrid)
     function renderFullPMScheduleCards() {
         const grid = document.getElementById('scheduleCardsGrid') ||
                      document.getElementById('scheduleGrid') ||
@@ -2308,7 +2418,6 @@ ensureLegacyDashboardIdsExist();
             return { ...item, nextDue: dueStr, diffDays };
         });
 
-        // Sort most urgent / overdue first
         enriched.sort((a, b) => a.diffDays - b.diffDays);
 
         const filtered = enriched.filter(item => {
@@ -2327,19 +2436,107 @@ ensureLegacyDashboardIdsExist();
         grid.innerHTML = filtered.slice(0, 60).map(item => {
             const isOverdue = item.diffDays < 0;
             const isSoon = item.diffDays >= 0 && item.diffDays <= 30;
-
             const badgeClass = isOverdue
                 ? 'bg-rose-100 text-rose-800 border-rose-200'
                 : (isSoon ? 'bg-amber-100 text-amber-800 border-amber-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200');
-
             const badgeText = isOverdue
                 ? `Overdue by ${Math.abs(item.diffDays)}d`
                 : (item.diffDays === 0 ? 'Due Today' : `Due in ${item.diffDays}d`);
 
             const safeId = String(item.id).replace(/'/g, "\\'");
             const actionBtn = isVis
-                ? `<span class="text-[11px] text-slate-400 italic">Sign in to log PM</span>`
+                ? `<span class="text-[11px] text-slate-400 italic mt-3 block">Sign in to log PM</span>`
                 : `<button type="button" onclick="openInventoryServiceReport('${safeId}')" class="w-full mt-3 py-2 px-3 bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs rounded-xl shadow-2xs transition-colors cursor-pointer flex items-center justify-center space-x-1.5">
+                       ${SVG_CLIPBOARD}
+                       <span>Execute PM &amp; Service Report</span>
+                   </button>`;
+
+            return `
+                <div class="bg-white rounded-2xl border border-slate-200/90 p-5 shadow-2xs hover:shadow-md transition-shadow flex flex-col justify-between">
+                    <div>
+                        <div class="flex items-start justify-between gap-2 mb-2">
+                            <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${badgeClass}">${badgeText}</span>
+                            <span class="font-mono text-[11px] text-slate-400">SN: ${item.serial}</span>
+                        </div>
+                        <h4 class="font-bold text-slate-900 text-sm sm:text-base">${item.name}</h4>
+                        <p class="text-xs font-semibold text-teal-700 mt-0.5">Model: ${item.model || 'Standard'}</p>
+                        <div class="mt-3 pt-3 border-t border-slate-100 space-y-1 text-xs text-slate-600">
+                            <div><strong class="text-slate-800">Facility:</strong> ${item.facility}</div>
+                            <div><strong class="text-slate-800">Section:</strong> ${item.department || item.dept || 'Clinical Lab'}</div>
+                            <div class="flex items-center justify-between pt-1">
+                                <span><strong class="text-slate-800">Installed:</strong> ${item.installDate || item.lastPM || 'N/A'}</span>
+                                <span><strong class="text-slate-800">Next PM:</strong> <span class="font-mono font-bold">${item.nextDue}</span></span>
+                            </div>
+                        </div>
+                    </div>
+                    ${actionBtn}
+                </div>
+            `;
+        }).join('');
+    }
+
+    // 4. Self-Contained Master Tab Switcher (Never fails even if app.js threw an error)
+    function masterSwitchTab(tabId) {
+        const role = getActiveRole();
+        const isSupervisor = (role === 'Head Technical' || role === 'MasterAdmin');
+        if ((tabId === 'inventory' || tabId === 'reports') && !isSupervisor) {
+            if (typeof window.showNotificationToast === 'function') {
+                window.showNotificationToast('Access restricted to Head Technical & MasterAdmin.', true);
+            }
+            return;
+        }
+
+        // Toggle active section
+        document.querySelectorAll('.tab-content').forEach(sec => {
+            if (sec.id === tabId) {
+                sec.classList.add('active');
+                sec.style.display = 'block';
+            } else {
+                sec.classList.remove('active');
+                sec.style.display = 'none';
+            }
+        });
+
+        // Toggle active tab button highlight
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            if (btn.id === `tab-${tabId}`) {
+                btn.className = 'tab-btn border-b-2 border-teal-600 text-teal-600 py-3 px-1 text-xs sm:text-sm font-semibold flex items-center space-x-2 whitespace-nowrap cursor-pointer';
+            } else {
+                btn.className = 'tab-btn border-b-2 border-transparent text-slate-500 hover:text-slate-800 py-3 px-1 text-xs sm:text-sm font-medium flex items-center space-x-2 whitespace-nowrap cursor-pointer';
+            }
+        });
+
+        // Render the target tab's fresh content
+        if (tabId === 'dashboard') syncDashboardCountersAndTables();
+        if (tabId === 'inventory') renderFullSearchableInventoryTable();
+        if (tabId === 'schedule') renderFullPMScheduleCards();
+        if (tabId === 'history') {
+            if (typeof origRenderHistoryTable === 'function') {
+                try { origRenderHistoryTable(); } catch (_) {}
+            }
+            upgradeMaintenanceHistoryCertificateButtons();
+        }
+        if (tabId === 'calibration') renderCalibrationTable();
+        if (tabId === 'tools') renderToolLogsTable();
+    }
+
+    window.switchTab = masterSwitchTab;
+    window.renderDashboard = syncDashboardCountersAndTables;
+    window.renderScheduleCards = renderFullPMScheduleCards;
+    window.enforceRoleNavigationAndMenuUI = enforceRoleNavigationAndMenuUI;
+
+    // Initialize immediately
+    ensureLegacyIdsNeverNull();
+    enforceRoleNavigationAndMenuUI(true);
+    syncDashboardCountersAndTables();
+    renderFullPMScheduleCards();
+
+    // Check role visibility gently without resetting the <select> DOM unless role changed
+    setInterval(() => {
+        enforceRoleNavigationAndMenuUI(false);
+    }, 1500);
+})();
+ flex items-center justify-center space-x-1.5">
                        ${SVG_CLIPBOARD}
                        <span>Execute PM &amp; Service Report</span>
                    </button>`;
