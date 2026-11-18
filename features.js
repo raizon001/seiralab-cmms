@@ -2453,6 +2453,103 @@
     }
 
     // Comprehensive Visual Reports & Fleet Analytics (Works whether #reportsContainer exists or not!)
+    // ========================================================================
+    // INTERACTIVE BI & DRILL-DOWN REPORTS & ANALYTICS ENGINE
+    // - 1. Interactive SVG Donut Chart (Click slice to filter by Status)
+    // - 2. 3-Way Interactive Bar Chart (By Region | By Department | By Brand/Model)
+    // - 3. Top Hospitals & Fleet Aging Filter (<1 Yr, 1-3 Yrs, 3-5 Yrs, 5+ Yrs)
+    // - 4. 6-Month Service Report, Calibration & PM Workload Trend Chart
+    // - 5. Live Drill-Down Equipment Table (Updates on any chart click)
+    // ========================================================================
+
+    window._biReportState = window._biReportState || {
+        dimension: 'region', // 'region' | 'department' | 'model'
+        statusFilter: '',    // '' | 'Operational' | 'PM Due' | 'Under Repair' | 'PULL OUT'
+        dimFilter: '',       // clicked bar value
+        facilityFilter: '',  // clicked hospital name
+        ageFilter: 'all',    // 'all' | 'under1' | '1to3' | '3to5' | 'over5'
+        monthFilter: ''      // 'YYYY-MM'
+    };
+
+    function inferRegionFromItem(item) {
+        if (item.region && item.region.trim()) return item.region.trim().toUpperCase();
+        const loc = String(item.location || '').toUpperCase();
+        if (loc.includes('—')) return loc.split('—')[0].trim();
+        const fac = String(item.facility || '').toUpperCase();
+        if (fac.includes('CEBU') || fac.includes('CUPSI') || fac.includes('SOTERO') || fac.includes('EVERSLEY')) return 'CEBU';
+        if (fac.includes('DAVAO') || fac.includes('SCDL') || fac.includes('BROKENSHIRE')) return 'DAVAO';
+        if (fac.includes('ILOILO') || fac.includes('WESTERN VISAYAS') || fac.includes('WVSU') || fac.includes('POTOTAN')) return 'ILOILO';
+        if (fac.includes('COTABATO') || fac.includes('MONTAÑER') || fac.includes('MAGUINDANAO') || fac.includes('DATU')) return 'MAGUINDANAO';
+        if (fac.includes('LLUCH') || fac.includes('KAPATAGAN') || fac.includes('MSU') || fac.includes('MARAWI') || fac.includes('LANAO')) return 'LANAO';
+        if (fac.includes('BUKIDNON') || fac.includes('MALAYBALAY') || fac.includes('VALENCIA')) return 'BUKIDNON';
+        if (fac.includes('CARAGA') || fac.includes('BUTUAN') || fac.includes('SURIGAO') || fac.includes('AGUSAN')) return 'CARAGA';
+        return 'SOCCSKSARGEN';
+    }
+
+    function getEquipmentAgeCategory(item) {
+        const raw = item.installDate && item.installDate !== 'N/A' ? item.installDate : item.lastPM;
+        const d = new Date(raw);
+        if (isNaN(d.getTime())) return '1to3';
+        const years = (new Date() - d) / (365.25 * 86400000);
+        if (years < 1) return 'under1';
+        if (years < 3) return '1to3';
+        if (years <= 5) return '3to5';
+        return 'over5';
+    }
+
+    function getAnalyticsBucketStatus(item, today) {
+        const st = normalizeStatusLabel(item.status);
+        const dueStr = item.nextDue || computeNextPMFromInstall(item.installDate || item.lastPM);
+        const diffDays = Math.ceil((new Date(dueStr) - today) / 86400000);
+        if (st === 'PULL OUT') return 'PULL OUT';
+        if (st === 'Under Repair') return 'Under Repair';
+        if (st === 'Maintenance Due' || diffDays <= 30) return 'PM Due';
+        return 'Operational';
+    }
+
+    window.setBiReportDimension = function (dim) {
+        window._biReportState.dimension = dim;
+        window._biReportState.dimFilter = '';
+        renderReportsAnalyticsSection();
+    };
+
+    window.toggleBiStatusFilter = function (statusLabel) {
+        window._biReportState.statusFilter = (window._biReportState.statusFilter === statusLabel) ? '' : statusLabel;
+        renderReportsAnalyticsSection();
+    };
+
+    window.toggleBiDimFilter = function (val) {
+        window._biReportState.dimFilter = (window._biReportState.dimFilter === val) ? '' : val;
+        renderReportsAnalyticsSection();
+    };
+
+    window.toggleBiFacilityFilter = function (fac) {
+        window._biReportState.facilityFilter = (window._biReportState.facilityFilter === fac) ? '' : fac;
+        renderReportsAnalyticsSection();
+    };
+
+    window.setBiAgeFilter = function (ageKey) {
+        window._biReportState.ageFilter = ageKey;
+        renderReportsAnalyticsSection();
+    };
+
+    window.toggleBiMonthFilter = function (ym) {
+        window._biReportState.monthFilter = (window._biReportState.monthFilter === ym) ? '' : ym;
+        renderReportsAnalyticsSection();
+    };
+
+    window.resetAllBiReportFilters = function () {
+        window._biReportState = {
+            dimension: window._biReportState.dimension || 'region',
+            statusFilter: '',
+            dimFilter: '',
+            facilityFilter: '',
+            ageFilter: 'all',
+            monthFilter: ''
+        };
+        renderReportsAnalyticsSection();
+    };
+
     function renderReportsAnalyticsSection() {
         const repSection = document.getElementById('reports');
         if (!repSection) return;
@@ -2464,119 +2561,386 @@
             repSection.appendChild(container);
         }
 
+        const stState = window._biReportState;
         const allItems = window.equipmentList || [];
-        const totalAll = Math.max(1, allItems.length);
         const today = new Date();
 
-        let opCount = 0;
-        let dueCount = 0;
-        let repairCount = 0;
-        let pullOutCount = 0;
-        const deptCounts = {};
-        const facCounts = {};
-
-        allItems.forEach(item => {
-            const st = normalizeStatusLabel(item.status);
+        // 1. Enrich all equipment records with computed analytics fields
+        const enrichedAll = allItems.map(item => {
+            const bucketStatus = getAnalyticsBucketStatus(item, today);
+            const region = inferRegionFromItem(item);
+            const dept = item.department || item.dept || 'Clinical Laboratory';
+            const brandModel = `${item.name || 'Equipment'} (${item.model || 'Standard'})`;
+            const ageCat = getEquipmentAgeCategory(item);
             const dueStr = item.nextDue || computeNextPMFromInstall(item.installDate || item.lastPM);
-            const diffDays = Math.ceil((new Date(dueStr) - today) / 86400000);
-
-            if (st === 'PULL OUT') {
-                pullOutCount++;
-            } else if (st === 'Under Repair') {
-                repairCount++;
-            } else if (st === 'Maintenance Due' || diffDays <= 30) {
-                dueCount++;
-            } else {
-                opCount++;
-            }
-
-            const d = item.department || item.dept || 'Clinical Laboratory';
-            deptCounts[d] = (deptCounts[d] || 0) + 1;
-
-            const f = item.facility || 'Unspecified Facility';
-            facCounts[f] = (facCounts[f] || 0) + 1;
+            return {
+                ...item,
+                _bucketStatus: bucketStatus,
+                _region: region,
+                _dept: dept,
+                _brandModel: brandModel,
+                _ageCat: ageCat,
+                _nextDue: dueStr
+            };
         });
 
-        const totalSites = Object.keys(facCounts).length;
-        const totalServiceLogs = (window.historyLogs || []).length;
-        const totalCalCerts = (window.calibrationList || []).length;
-        const activeFleet = Math.max(1, allItems.length - pullOutCount);
-        const compliancePct = Math.round(((opCount + dueCount) / activeFleet) * 100);
+        // 2. Apply Active Interactive Filters for the Drill-Down Subset
+        const filteredItems = enrichedAll.filter(item => {
+            if (stState.statusFilter && item._bucketStatus !== stState.statusFilter) return false;
+            if (stState.ageFilter !== 'all' && item._ageCat !== stState.ageFilter) return false;
+            if (stState.facilityFilter && item.facility !== stState.facilityFilter) return false;
+            if (stState.dimFilter) {
+                if (stState.dimension === 'region' && item._region !== stState.dimFilter) return false;
+                if (stState.dimension === 'department' && item._dept !== stState.dimFilter) return false;
+                if (stState.dimension === 'model' && item._brandModel !== stState.dimFilter) return false;
+            }
+            if (stState.monthFilter) {
+                const dueYm = String(item._nextDue || '').slice(0, 7);
+                const instYm = String(item.installDate || '').slice(0, 7);
+                if (dueYm !== stState.monthFilter && instYm !== stState.monthFilter) return false;
+            }
+            return true;
+        });
 
-        const statusRows = [
-            { label: 'Operational (Verified)', count: opCount, pct: Math.round((opCount / totalAll) * 100), bar: 'bg-emerald-500', text: 'text-emerald-700' },
-            { label: 'PM Due / Scheduled (Within 30d)', count: dueCount, pct: Math.round((dueCount / totalAll) * 100), bar: 'bg-amber-500', text: 'text-amber-700' },
-            { label: 'Under Repair / Corrective Service', count: repairCount, pct: Math.round((repairCount / totalAll) * 100), bar: 'bg-rose-500', text: 'text-rose-700' },
-            { label: 'PULL OUT (Inactive / Pulled Out)', count: pullOutCount, pct: Math.round((pullOutCount / totalAll) * 100), bar: 'bg-slate-500', text: 'text-slate-700' }
+        // 3. Compute Status Counts (for the Donut Chart)
+        const baseForDonut = enrichedAll.filter(item => {
+            if (stState.ageFilter !== 'all' && item._ageCat !== stState.ageFilter) return false;
+            if (stState.facilityFilter && item.facility !== stState.facilityFilter) return false;
+            if (stState.dimFilter) {
+                if (stState.dimension === 'region' && item._region !== stState.dimFilter) return false;
+                if (stState.dimension === 'department' && item._dept !== stState.dimFilter) return false;
+                if (stState.dimension === 'model' && item._brandModel !== stState.dimFilter) return false;
+            }
+            return true;
+        });
+
+        let opCount = 0, dueCount = 0, repairCount = 0, pullOutCount = 0;
+        baseForDonut.forEach(item => {
+            if (item._bucketStatus === 'Operational') opCount++;
+            else if (item._bucketStatus === 'PM Due') dueCount++;
+            else if (item._bucketStatus === 'Under Repair') repairCount++;
+            else if (item._bucketStatus === 'PULL OUT') pullOutCount++;
+        });
+
+        const donutTotal = Math.max(1, baseForDonut.length);
+        const activeFleet = Math.max(1, baseForDonut.length - pullOutCount);
+        const availabilityPct = Math.round(((opCount + dueCount) / activeFleet) * 100);
+
+        // Build SVG Donut Segments (r = 15.9155 => circumference = 100)
+        const segments = [
+            { key: 'Operational', label: 'Operational (Verified)', count: opCount, color: '#10b981', bg: 'bg-emerald-500', badge: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+            { key: 'PM Due', label: 'PM Due (Within 30d)', count: dueCount, color: '#f59e0b', bg: 'bg-amber-500', badge: 'bg-amber-50 text-amber-700 border-amber-200' },
+            { key: 'Under Repair', label: 'Under Repair', count: repairCount, color: '#f43f5e', bg: 'bg-rose-500', badge: 'bg-rose-50 text-rose-700 border-rose-200' },
+            { key: 'PULL OUT', label: 'PULL OUT', count: pullOutCount, color: '#64748b', bg: 'bg-slate-500', badge: 'bg-slate-100 text-slate-700 border-slate-300' }
         ];
 
-        const topDepts = Object.entries(deptCounts).sort((a, b) => b[1] - a[1]).slice(0, 6);
-        const topFacs = Object.entries(facCounts).sort((a, b) => b[1] - a[1]).slice(0, 8);
-        const maxFacCount = topFacs[0]?.[1] || 1;
+        let cumulativePct = 0;
+        const svgCirclesHTML = segments.map(seg => {
+            const pct = (seg.count / donutTotal) * 100;
+            if (pct <= 0) return '';
+            const dashArray = `${pct} ${100 - pct}`;
+            const dashOffset = 25 - cumulativePct;
+            cumulativePct += pct;
+            const isSelected = stState.statusFilter === seg.key;
+            const strokeW = isSelected ? '6.2' : '5';
+            const opacity = (!stState.statusFilter || isSelected) ? '1' : '0.35';
+            return `<circle cx="21" cy="21" r="15.9155" fill="transparent" stroke="${seg.color}" stroke-width="${strokeW}" stroke-dasharray="${dashArray}" stroke-dashoffset="${dashOffset}" opacity="${opacity}" class="cursor-pointer transition-all duration-300 hover:opacity-90" onclick="toggleBiStatusFilter('${seg.key}')"><title>${seg.label}: ${seg.count} units (${Math.round(pct)}%)</title></circle>`;
+        }).join('');
+
+        // 4. Compute 3-Way Dynamic Dimension Counts (Region | Department | Brand/Model)
+        const dimCounts = {};
+        const baseForDim = enrichedAll.filter(item => {
+            if (stState.statusFilter && item._bucketStatus !== stState.statusFilter) return false;
+            if (stState.ageFilter !== 'all' && item._ageCat !== stState.ageFilter) return false;
+            if (stState.facilityFilter && item.facility !== stState.facilityFilter) return false;
+            return true;
+        });
+
+        baseForDim.forEach(item => {
+            const key = stState.dimension === 'region'
+                ? item._region
+                : (stState.dimension === 'department' ? item._dept : item._brandModel);
+            if (!dimCounts[key]) dimCounts[key] = { total: 0, op: 0, due: 0, repair: 0, pull: 0 };
+            dimCounts[key].total++;
+            if (item._bucketStatus === 'Operational') dimCounts[key].op++;
+            else if (item._bucketStatus === 'PM Due') dimCounts[key].due++;
+            else if (item._bucketStatus === 'Under Repair') dimCounts[key].repair++;
+            else dimCounts[key].pull++;
+        });
+
+        const sortedDims = Object.entries(dimCounts).sort((a, b) => b[1].total - a[1].total).slice(0, 8);
+        const maxDimVal = sortedDims[0]?.[1]?.total || 1;
+
+        // 5. Compute Top Client Hospitals & Laboratories
+        const facCounts = {};
+        const baseForFac = enrichedAll.filter(item => {
+            if (stState.statusFilter && item._bucketStatus !== stState.statusFilter) return false;
+            if (stState.ageFilter !== 'all' && item._ageCat !== stState.ageFilter) return false;
+            if (stState.dimFilter) {
+                if (stState.dimension === 'region' && item._region !== stState.dimFilter) return false;
+                if (stState.dimension === 'department' && item._dept !== stState.dimFilter) return false;
+                if (stState.dimension === 'model' && item._brandModel !== stState.dimFilter) return false;
+            }
+            return true;
+        });
+
+        baseForFac.forEach(item => {
+            const f = item.facility || 'Unspecified Facility';
+            if (!facCounts[f]) facCounts[f] = { total: 0, due: 0, op: 0 };
+            facCounts[f].total++;
+            if (item._bucketStatus === 'PM Due' || item._bucketStatus === 'Under Repair') facCounts[f].due++;
+            else if (item._bucketStatus === 'Operational') facCounts[f].op++;
+        });
+
+        const totalPartnerSites = new Set(enrichedAll.map(i => i.facility).filter(Boolean)).size;
+        const topFacs = Object.entries(facCounts).sort((a, b) => b[1].total - a[1].total).slice(0, 8);
+        const maxFacCount = topFacs[0]?.[1]?.total || 1;
+
+        // 6. Compute 6-Month Service Report, Calibration & PM Schedule Trend
+        const monthBuckets = [];
+        for (let m = -3; m <= 2; m++) {
+            const d = new Date(today.getFullYear(), today.getMonth() + m, 1);
+            const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+            const label = d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+            monthBuckets.push({ ym, label, srCount: 0, calCount: 0, pmScheduled: 0 });
+        }
+
+        (window.historyLogs || []).forEach(l => {
+            const ym = String(l.date || '').slice(0, 7);
+            const b = monthBuckets.find(x => x.ym === ym);
+            if (b) b.srCount++;
+        });
+        (window.calibrationList || []).forEach(c => {
+            const ym = String(c.calDate || '').slice(0, 7);
+            const b = monthBuckets.find(x => x.ym === ym);
+            if (b) b.calCount++;
+        });
+        filteredItems.forEach(eq => {
+            const ym = String(eq._nextDue || '').slice(0, 7);
+            const b = monthBuckets.find(x => x.ym === ym);
+            if (b) b.pmScheduled++;
+        });
+
+        const maxMonthVal = Math.max(5, ...monthBuckets.map(b => Math.max(b.srCount + b.calCount, b.pmScheduled)));
+
+        // Active Filter Pills Bar
+        const activeFilterPills = [];
+        if (stState.statusFilter) activeFilterPills.push({ label: `Status: ${stState.statusFilter}`, clear: `toggleBiStatusFilter('${stState.statusFilter}')` });
+        if (stState.dimFilter) activeFilterPills.push({ label: `${stState.dimension.toUpperCase()}: ${stState.dimFilter.replace(/'/g, "\\'")}`, clear: `toggleBiDimFilter('${stState.dimFilter.replace(/'/g, "\\'")}')` });
+        if (stState.facilityFilter) activeFilterPills.push({ label: `Hospital: ${stState.facilityFilter.replace(/'/g, "\\'")}`, clear: `toggleBiFacilityFilter('${stState.facilityFilter.replace(/'/g, "\\'")}')` });
+        if (stState.ageFilter !== 'all') activeFilterPills.push({ label: `Age: ${stState.ageFilter}`, clear: `setBiAgeFilter('all')` });
+        if (stState.monthFilter) activeFilterPills.push({ label: `Month: ${stState.monthFilter}`, clear: `toggleBiMonthFilter('${stState.monthFilter}')` });
+
+        const filterBannerHTML = activeFilterPills.length > 0 ? `
+            <div class="bg-teal-950 text-white px-4 py-3 rounded-2xl flex flex-wrap items-center justify-between gap-2 shadow-md">
+                <div class="flex flex-wrap items-center gap-2 text-xs">
+                    <span class="font-bold uppercase tracking-wider text-teal-300">Active Drill-Down Filters (${filteredItems.length} units):</span>
+                    ${activeFilterPills.map(p => `
+                        <button type="button" onclick="${p.clear}" class="inline-flex items-center space-x-1.5 px-2.5 py-1 bg-teal-800/90 hover:bg-rose-600 text-white rounded-full font-semibold transition-colors cursor-pointer">
+                            <span>${p.label}</span>
+                            <span>&times;</span>
+                        </button>
+                    `).join('')}
+                </div>
+                <button type="button" onclick="resetAllBiReportFilters()" class="text-xs font-bold text-amber-300 hover:text-amber-200 underline cursor-pointer shrink-0">
+                    Reset All Charts
+                </button>
+            </div>
+        ` : '';
 
         container.className = 'space-y-6';
         container.innerHTML = `
+            ${filterBannerHTML}
+
+            <!-- Top Executive Summary KPI Row (Interactive Clickable Cards) -->
             <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                <div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs">
+                <div onclick="resetAllBiReportFilters()" class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs hover:border-teal-500 transition-all cursor-pointer">
                     <p class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Partner Hospitals &amp; Labs</p>
-                    <p class="text-2xl font-extrabold text-slate-900 mt-1">${totalSites}</p>
-                    <p class="text-xs text-teal-600 font-medium mt-0.5">Active regional client sites</p>
+                    <p class="text-2xl font-extrabold text-slate-900 mt-1">${Object.keys(facCounts).length} <span class="text-xs font-semibold text-slate-400">/ ${totalPartnerSites}</span></p>
+                    <p class="text-xs text-teal-600 font-medium mt-0.5">Click any chart to drill down</p>
                 </div>
-                <div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs">
+                <div onclick="toggleBiStatusFilter('Operational')" class="bg-white p-4 rounded-2xl border ${stState.statusFilter === 'Operational' ? 'border-emerald-500 ring-2 ring-emerald-500/20' : 'border-slate-200/80'} shadow-2xs hover:border-emerald-500 transition-all cursor-pointer">
                     <p class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Fleet Availability Rate</p>
-                    <p class="text-2xl font-extrabold text-emerald-600 mt-1">${compliancePct}%</p>
-                    <p class="text-xs text-slate-500 mt-0.5">${opCount + dueCount} of ${activeFleet} active machines</p>
+                    <p class="text-2xl font-extrabold text-emerald-600 mt-1">${availabilityPct}%</p>
+                    <p class="text-xs text-slate-500 mt-0.5">${opCount} verified + ${dueCount} scheduled</p>
                 </div>
-                <div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs">
+                <div onclick="switchTab('history')" class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs hover:border-teal-500 transition-all cursor-pointer">
                     <p class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Registered Service Reports</p>
-                    <p class="text-2xl font-extrabold text-slate-900 mt-1">${totalServiceLogs}</p>
-                    <p class="text-xs text-teal-600 font-medium mt-0.5">Official SR #05535+ series</p>
+                    <p class="text-2xl font-extrabold text-slate-900 mt-1">${(window.historyLogs || []).length}</p>
+                    <p class="text-xs text-teal-600 font-medium mt-0.5">Official SR #05535+ series &rarr;</p>
                 </div>
-                <div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs">
+                <div onclick="switchTab('calibration')" class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs hover:border-blue-500 transition-all cursor-pointer">
                     <p class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Calibration Certificates</p>
-                    <p class="text-2xl font-extrabold text-blue-600 mt-1">${totalCalCerts}</p>
-                    <p class="text-xs text-slate-500 mt-0.5">DOH / ISO 17025 traceable</p>
+                    <p class="text-2xl font-extrabold text-blue-600 mt-1">${(window.calibrationList || []).length}</p>
+                    <p class="text-xs text-slate-500 mt-0.5">DOH / ISO 17025 traceable &rarr;</p>
                 </div>
             </div>
 
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div class="space-y-6">
+            <!-- Main Interactive Charts Grid -->
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+                <!-- Left 5 Cols: Interactive SVG Donut Chart + Monthly Workload Trend -->
+                <div class="lg:col-span-5 space-y-6">
+                    <!-- 1. Interactive SVG Donut Chart -->
                     <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-2xs">
-                        <div class="flex items-center justify-between mb-4">
-                            <h3 class="font-bold text-slate-900 text-sm">Equipment Fleet by Operational Status</h3>
-                            <span class="text-xs font-semibold text-slate-400">${allItems.length} Total Units</span>
+                        <div class="flex items-center justify-between mb-3">
+                            <div>
+                                <h3 class="font-bold text-slate-900 text-sm">Fleet Health &amp; SLA Compliance</h3>
+                                <p class="text-[11px] text-slate-400">Click any ring slice or status card to filter</p>
+                            </div>
+                            <span class="px-2.5 py-1 bg-slate-100 text-slate-700 rounded-full text-xs font-bold">${baseForDonut.length} Units</span>
                         </div>
-                        <div class="space-y-3.5">
-                            ${statusRows.map(s => `
-                                <div>
-                                    <div class="flex items-center justify-between text-xs mb-1">
-                                        <span class="font-semibold text-slate-700">${s.label}</span>
-                                        <span class="font-bold ${s.text}">${s.count} units (${s.pct}%)</span>
-                                    </div>
-                                    <div class="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
-                                        <div class="${s.bar} h-full rounded-full transition-all" style="width: ${Math.max(s.count > 0 ? 4 : 0, s.pct)}%"></div>
-                                    </div>
+
+                        <div class="flex flex-col sm:flex-row items-center gap-5 my-2">
+                            <div class="relative w-40 h-40 shrink-0 flex items-center justify-center">
+                                <svg viewBox="0 0 42 42" class="w-full h-full -rotate-90 overflow-visible">
+                                    <circle cx="21" cy="21" r="15.9155" fill="transparent" stroke="#f1f5f9" stroke-width="5"></circle>
+                                    ${svgCirclesHTML}
+                                </svg>
+                                <div class="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none">
+                                    <span class="text-2xl font-extrabold text-slate-900">${filteredItems.length}</span>
+                                    <span class="text-[10px] font-bold uppercase tracking-wider text-teal-600">${stState.statusFilter || 'Active View'}</span>
                                 </div>
-                            `).join('')}
+                            </div>
+
+                            <div class="flex-1 w-full space-y-2">
+                                ${segments.map(seg => {
+                                    const pct = Math.round((seg.count / donutTotal) * 100);
+                                    const active = stState.statusFilter === seg.key;
+                                    return `
+                                        <div onclick="toggleBiStatusFilter('${seg.key}')" class="p-2 rounded-xl border ${active ? 'border-teal-600 bg-teal-50/60 shadow-2xs' : 'border-slate-100 hover:bg-slate-50'} flex items-center justify-between cursor-pointer transition-all">
+                                            <div class="flex items-center space-x-2 min-w-0">
+                                                <span class="w-3 h-3 rounded-sm ${seg.bg} shrink-0"></span>
+                                                <span class="text-xs font-semibold text-slate-700 truncate">${seg.label}</span>
+                                            </div>
+                                            <span class="text-xs font-bold text-slate-900 shrink-0 ml-2">${seg.count} <span class="text-[11px] text-slate-400">(${pct}%)</span></span>
+                                        </div>
+                                    `;
+                                }).join('')}
+                            </div>
                         </div>
                     </div>
 
+                    <!-- 2. 6-Month Service Report, Calibration & Scheduled PM Workload Trend -->
                     <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-2xs">
-                        <div class="flex items-center justify-between mb-4">
-                            <h3 class="font-bold text-slate-900 text-sm">Departmental &amp; Laboratory Section Distribution</h3>
-                            <span class="text-xs font-semibold text-teal-600">By Modality</span>
+                        <div class="flex items-center justify-between mb-3">
+                            <div>
+                                <h3 class="font-bold text-slate-900 text-sm">Monthly PM &amp; Service Workload Trend</h3>
+                                <p class="text-[11px] text-slate-400">Click any month column to inspect scheduled machines</p>
+                            </div>
+                            <div class="flex items-center space-x-3 text-[11px] font-semibold">
+                                <span class="inline-flex items-center space-x-1"><span class="w-2.5 h-2.5 rounded-xs bg-teal-600 inline-block"></span><span>Scheduled PM</span></span>
+                                <span class="inline-flex items-center space-x-1"><span class="w-2.5 h-2.5 rounded-xs bg-amber-500 inline-block"></span><span>SR / Cal</span></span>
+                            </div>
                         </div>
-                        <div class="space-y-3">
-                            ${topDepts.map(([dept, count]) => {
-                                const pct = Math.round((count / totalAll) * 100);
+
+                        <div class="grid grid-cols-6 gap-2 pt-4 items-end h-40 border-b border-slate-200 pb-2 px-1">
+                            ${monthBuckets.map(b => {
+                                const pmHeight = Math.max(8, Math.round((b.pmScheduled / maxMonthVal) * 110));
+                                const srCalTotal = b.srCount + b.calCount;
+                                const srHeight = Math.max(srCalTotal > 0 ? 10 : 4, Math.round((srCalTotal / maxMonthVal) * 110));
+                                const isSel = stState.monthFilter === b.ym;
                                 return `
-                                    <div>
-                                        <div class="flex items-center justify-between text-xs mb-1">
-                                            <span class="font-semibold text-slate-700">${dept}</span>
-                                            <span class="font-bold text-slate-900">${count} units (${pct}%)</span>
+                                    <div onclick="toggleBiMonthFilter('${b.ym}')" class="flex flex-col items-center justify-end h-full cursor-pointer group ${isSel ? 'bg-teal-50/80 rounded-xl p-1 ring-1 ring-teal-500' : ''}">
+                                        <div class="text-[10px] font-bold text-slate-600 mb-1">${b.pmScheduled}</div>
+                                        <div class="flex items-end justify-center space-x-1 w-full">
+                                            <div class="w-3.5 bg-teal-600 group-hover:bg-teal-500 rounded-t-md transition-all" style="height: ${pmHeight}px" title="Scheduled PMs in ${b.label}: ${b.pmScheduled}"></div>
+                                            <div class="w-2.5 bg-amber-500 group-hover:bg-amber-400 rounded-t-md transition-all" style="height: ${srHeight}px" title="Completed SR/Cal in ${b.label}: ${srCalTotal}"></div>
                                         </div>
-                                        <div class="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-                                            <div class="bg-teal-600 h-full rounded-full" style="width: ${Math.max(5, pct)}%"></div>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                        <div class="grid grid-cols-6 gap-2 pt-2 text-center">
+                            ${monthBuckets.map(b => `
+                                <button type="button" onclick="toggleBiMonthFilter('${b.ym}')" class="text-[11px] font-bold ${stState.monthFilter === b.ym ? 'text-teal-700 underline' : 'text-slate-500'} cursor-pointer">${b.label}</button>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right 7 Cols: 3-Way Regional/Modality/Model Switcher + Top Hospitals & Aging Filter -->
+                <div class="lg:col-span-7 space-y-6">
+
+                    <!-- 3. 3-Way Interactive Bar Chart (By Region | By Department | By Brand/Model) -->
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-2xs">
+                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+                            <div>
+                                <h3 class="font-bold text-slate-900 text-sm">Interactive Fleet Breakdown</h3>
+                                <p class="text-[11px] text-slate-400">Switch dimension or click any bar to isolate territory / modality</p>
+                            </div>
+                            <div class="inline-flex bg-slate-100 p-1 rounded-xl text-xs font-semibold self-start">
+                                <button type="button" onclick="setBiReportDimension('region')" class="px-3 py-1.5 rounded-lg transition-all cursor-pointer ${stState.dimension === 'region' ? 'bg-white text-teal-700 shadow-2xs font-bold' : 'text-slate-600 hover:text-slate-900'}">By Region</button>
+                                <button type="button" onclick="setBiReportDimension('department')" class="px-3 py-1.5 rounded-lg transition-all cursor-pointer ${stState.dimension === 'department' ? 'bg-white text-teal-700 shadow-2xs font-bold' : 'text-slate-600 hover:text-slate-900'}">By Department</button>
+                                <button type="button" onclick="setBiReportDimension('model')" class="px-3 py-1.5 rounded-lg transition-all cursor-pointer ${stState.dimension === 'model' ? 'bg-white text-teal-700 shadow-2xs font-bold' : 'text-slate-600 hover:text-slate-900'}">By Brand / Model</button>
+                            </div>
+                        </div>
+
+                        <div class="space-y-3">
+                            ${sortedDims.map(([dimKey, info]) => {
+                                const safeKey = dimKey.replace(/'/g, "\\'");
+                                const isSel = stState.dimFilter === dimKey;
+                                const opW = Math.round((info.op / maxDimVal) * 100);
+                                const dueW = Math.round((info.due / maxDimVal) * 100);
+                                const repW = Math.round(((info.repair + info.pull) / maxDimVal) * 100);
+                                return `
+                                    <div onclick="toggleBiDimFilter('${safeKey}')" class="p-2.5 rounded-xl border ${isSel ? 'border-teal-600 bg-teal-50/50 ring-1 ring-teal-500/30' : 'border-slate-100 hover:bg-slate-50'} cursor-pointer transition-all">
+                                        <div class="flex items-center justify-between text-xs mb-1.5">
+                                            <span class="font-bold text-slate-800 truncate pr-2">${dimKey}</span>
+                                            <div class="flex items-center space-x-2 shrink-0">
+                                                <span class="text-[11px] text-emerald-700 font-semibold">${info.op} Op</span>
+                                                ${info.due > 0 ? `<span class="text-[11px] text-amber-600 font-semibold">&bull; ${info.due} Due</span>` : ''}
+                                                <span class="px-2 py-0.5 bg-slate-900 text-white rounded-md font-bold text-[11px]">${info.total}</span>
+                                            </div>
+                                        </div>
+                                        <div class="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden flex">
+                                            <div class="bg-emerald-500 h-full transition-all" style="width: ${opW}%" title="Operational: ${info.op}"></div>
+                                            <div class="bg-amber-500 h-full transition-all" style="width: ${dueW}%" title="PM Due: ${info.due}"></div>
+                                            <div class="bg-rose-500 h-full transition-all" style="width: ${repW}%" title="Repair / Pull Out: ${info.repair + info.pull}"></div>
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+
+                    <!-- 4. Top Client Hospitals + Installed Age / Warranty Lifecycle Filter -->
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-2xs">
+                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+                            <div>
+                                <h3 class="font-bold text-slate-900 text-sm">Top Client Hospitals &amp; Installed Age Lifecycle</h3>
+                                <p class="text-[11px] text-slate-400">Filter by warranty / age tier or click any hospital to inspect its machines</p>
+                            </div>
+                            <div class="flex flex-wrap gap-1 text-[11px] font-semibold">
+                                ${[
+                                    { k: 'all', l: 'All Ages' },
+                                    { k: 'under1', l: '< 1 Yr (Warranty)' },
+                                    { k: '1to3', l: '1–3 Yrs' },
+                                    { k: '3to5', l: '3–5 Yrs' },
+                                    { k: 'over5', l: '5+ Yrs' }
+                                ].map(a => `
+                                    <button type="button" onclick="setBiAgeFilter('${a.k}')" class="px-2.5 py-1 rounded-lg border cursor-pointer transition-all ${stState.ageFilter === a.k ? 'bg-teal-600 text-white border-teal-600 font-bold' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}">${a.l}</button>
+                                `).join('')}
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                            ${topFacs.map(([fac, fObj], idx) => {
+                                const safeFac = fac.replace(/'/g, "\\'");
+                                const isSel = stState.facilityFilter === fac;
+                                const relW = Math.round((fObj.total / maxFacCount) * 100);
+                                return `
+                                    <div onclick="toggleBiFacilityFilter('${safeFac}')" class="p-3 rounded-xl border ${isSel ? 'border-teal-600 bg-teal-50/60 ring-1 ring-teal-500/30' : 'border-slate-200/70 bg-slate-50/70 hover:bg-slate-100/80'} cursor-pointer transition-all">
+                                        <div class="flex items-center justify-between text-xs mb-1.5">
+                                            <span class="font-bold text-slate-800 truncate pr-2">${idx + 1}. ${fac}</span>
+                                            <span class="px-2 py-0.5 bg-teal-50 text-teal-700 border border-teal-200 rounded-md font-bold shrink-0">${fObj.total} units</span>
+                                        </div>
+                                        <div class="w-full h-1.5 bg-slate-200/80 rounded-full overflow-hidden mb-1">
+                                            <div class="bg-gradient-to-r from-teal-600 to-emerald-500 h-full rounded-full" style="width: ${relW}%"></div>
+                                        </div>
+                                        <div class="flex items-center justify-between text-[10px] text-slate-500">
+                                            <span>${fObj.op} Verified Operational</span>
+                                            <span>${fObj.due} PM Due</span>
                                         </div>
                                     </div>
                                 `;
@@ -2584,34 +2948,58 @@
                         </div>
                     </div>
                 </div>
+            </div>
 
-                <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-2xs flex flex-col justify-between">
+            <!-- 5. Live Interactive Drill-Down Equipment Table -->
+            <div class="bg-white rounded-2xl border border-slate-200/80 shadow-2xs overflow-hidden">
+                <div class="p-4 bg-slate-50/80 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                     <div>
-                        <div class="flex items-center justify-between mb-4">
-                            <h3 class="font-bold text-slate-900 text-sm">Top Client Hospitals &amp; Laboratories</h3>
-                            <span class="text-xs font-semibold text-slate-400">Highest Installed Base</span>
-                        </div>
-                        <div class="space-y-3">
-                            ${topFacs.map(([fac, count], idx) => {
-                                const relWidth = Math.round((count / maxFacCount) * 100);
+                        <h3 class="font-bold text-slate-900 text-sm">Interactive Drill-Down Asset Inspector (${filteredItems.length} Matching Machines)</h3>
+                        <p class="text-xs text-slate-500">Showing live equipment records matching your clicked chart segments above</p>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        ${activeFilterPills.length > 0 ? `<button type="button" onclick="resetAllBiReportFilters()" class="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-lg text-xs font-semibold cursor-pointer">Clear Filters</button>` : ''}
+                        <button type="button" onclick="switchTab('inventory')" class="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-xs font-semibold cursor-pointer">Open Full Inventory &rarr;</button>
+                    </div>
+                </div>
+                <div class="overflow-x-auto max-h-96">
+                    <table class="w-full text-left border-collapse text-xs">
+                        <thead class="bg-slate-100/80 border-b border-slate-200 text-[11px] font-bold uppercase text-slate-500 sticky top-0">
+                            <tr>
+                                <th class="py-3 px-4">Equipment &amp; Model</th>
+                                <th class="py-3 px-4">Serial / ID</th>
+                                <th class="py-3 px-4">Hospital / Laboratory</th>
+                                <th class="py-3 px-4">Region &amp; Section</th>
+                                <th class="py-3 px-4">Installed Date</th>
+                                <th class="py-3 px-4">Status</th>
+                                <th class="py-3 px-4 text-right">Quick Action</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            ${filteredItems.slice(0, 40).map(item => {
+                                const safeId = String(item.id).replace(/'/g, "\\'");
+                                const badgeStyle = item._bucketStatus === 'Operational'
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                    : (item._bucketStatus === 'PM Due' ? 'bg-amber-50 text-amber-700 border-amber-200' : (item._bucketStatus === 'PULL OUT' ? 'bg-slate-200 text-slate-800 border-slate-300' : 'bg-rose-50 text-rose-700 border-rose-200'));
                                 return `
-                                    <div class="p-2.5 bg-slate-50/80 rounded-xl border border-slate-200/60">
-                                        <div class="flex items-center justify-between text-xs mb-1.5">
-                                            <span class="font-bold text-slate-800 truncate pr-3">${idx + 1}. ${fac}</span>
-                                            <span class="px-2 py-0.5 bg-teal-50 text-teal-700 border border-teal-200 rounded-md font-bold shrink-0">${count} units</span>
-                                        </div>
-                                        <div class="w-full h-1.5 bg-slate-200/70 rounded-full overflow-hidden">
-                                            <div class="bg-gradient-to-r from-teal-600 to-emerald-500 h-full rounded-full" style="width: ${relWidth}%"></div>
-                                        </div>
-                                    </div>
+                                    <tr class="hover:bg-slate-50/80">
+                                        <td class="py-2.5 px-4 font-bold text-slate-900">${item.name}<div class="text-[11px] font-normal text-slate-500">Model: ${item.model}</div></td>
+                                        <td class="py-2.5 px-4 font-mono font-semibold text-slate-700">${item.serial}</td>
+                                        <td class="py-2.5 px-4 font-semibold text-slate-800">${item.facility}</td>
+                                        <td class="py-2.5 px-4 text-slate-600"><span class="font-bold text-teal-700">${item._region}</span> &bull; ${item._dept}</td>
+                                        <td class="py-2.5 px-4 font-mono text-slate-700">${item.installDate || item.lastPM || 'N/A'}</td>
+                                        <td class="py-2.5 px-4"><span class="px-2 py-0.5 rounded-full text-[11px] font-bold border ${badgeStyle}">${item._bucketStatus}</span></td>
+                                        <td class="py-2.5 px-4 text-right">
+                                            <div class="inline-flex items-center space-x-1">
+                                                <button type="button" onclick="openInventoryServiceReport('${safeId}')" class="px-2 py-1 bg-teal-50 hover:bg-teal-100 text-teal-700 border border-teal-200 rounded-lg font-semibold text-[11px] cursor-pointer">Service Report</button>
+                                                <button type="button" onclick="openInventoryEditModal('${safeId}')" class="p-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg cursor-pointer">${SVG_EDIT}</button>
+                                            </div>
+                                        </td>
+                                    </tr>
                                 `;
                             }).join('')}
-                        </div>
-                    </div>
-                    <div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-                        <span>Showing top ${topFacs.length} of ${totalSites} partner facilities</span>
-                        <button type="button" onclick="switchTab('inventory')" class="font-semibold text-teal-600 hover:text-teal-700 cursor-pointer">View All Assets &rarr;</button>
-                    </div>
+                        </tbody>
+                    </table>
                 </div>
             </div>
         `;
