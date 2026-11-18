@@ -3144,4 +3144,182 @@
             upgradeCalibrationToolbarUI();
         }
     }, 1200);
+    // ========================================================================
+    // PATCH:
+    // 1. Hide "Local Storage Saved / Cloud DB" (#ghStatusBtn) from Head Technical (MasterAdmin ONLY)
+    // 2. Remove "Print Summary Report" button from Reports & Analytics
+    // 3. Make "+ Add Equipment" (openAddModal / saveEquipment) 100% functional
+    // ========================================================================
+
+    function applyAdminOnlyCloudBadgeAndRemovePrintSummary() {
+        const role = getActiveRole();
+        const isMasterAdmin = (role === 'MasterAdmin');
+
+        // 1. Show Cloud DB / Local Storage Saved button ONLY for MasterAdmin
+        const ghBtn = document.getElementById('ghStatusBtn');
+        if (ghBtn) {
+            ghBtn.classList.toggle('hidden', !isMasterAdmin);
+            ghBtn.style.display = isMasterAdmin ? '' : 'none';
+        }
+
+        // Also hide the manual sync refresh icon next to it unless MasterAdmin (optional clean header)
+        const syncRefreshBtn = document.querySelector('button[onclick*="syncFromGitHub"]');
+        if (syncRefreshBtn) {
+            syncRefreshBtn.classList.toggle('hidden', !isMasterAdmin);
+            syncRefreshBtn.style.display = isMasterAdmin ? '' : 'none';
+        }
+
+        // 2. Remove "Print Summary Report" button in Reports & Analytics
+        const repSection = document.getElementById('reports');
+        if (repSection) {
+            repSection.querySelectorAll('button').forEach(btn => {
+                if (btn.innerText && btn.innerText.includes('Print Summary Report')) {
+                    btn.remove();
+                }
+            });
+        }
+    }
+
+    // 3. Self-Contained "+ Add Equipment" Modal & Save Engine
+    function openAddModal() {
+        if (isVisitorUser()) {
+            if (typeof showNotificationToast === 'function') {
+                showNotificationToast('Visitors have view-only access.', true);
+            }
+            return;
+        }
+        ensureFeatureModalsExist();
+        const modal = document.getElementById('addEquipmentModal');
+        const form = document.getElementById('equipmentForm');
+        if (form) form.reset();
+
+        const idEl = document.getElementById('eqId');
+        if (idEl) idEl.value = '';
+
+        const titleEl = document.getElementById('modalTitle');
+        if (titleEl) titleEl.innerText = 'Add New Medical Equipment';
+
+        const todayISO = new Date().toISOString().split('T')[0];
+        const dateEl = document.getElementById('eqLastPM');
+        if (dateEl) {
+            dateEl.value = todayISO;
+            const labelEl = dateEl.previousElementSibling;
+            if (labelEl) labelEl.innerText = 'INSTALLED DATE *';
+        }
+
+        enforceInstalledDateAndPullOutUI();
+        if (modal) modal.classList.remove('hidden');
+    }
+
+    function closeAddModal() {
+        document.getElementById('addEquipmentModal')?.classList.add('hidden');
+    }
+
+    async function saveEquipment(event) {
+        if (event) event.preventDefault();
+        if (isVisitorUser()) return;
+
+        const editId = document.getElementById('eqId')?.value || '';
+        const name = (document.getElementById('eqName')?.value || '').trim();
+        const model = (document.getElementById('eqModel')?.value || '').trim() || 'Standard';
+        const serial = (document.getElementById('eqSerial')?.value || '').trim() || `SLI-${Date.now().toString().slice(-4)}`;
+        const facility = (document.getElementById('eqFacility')?.value || '').trim() || 'Client Medical Facility';
+        const dept = (document.getElementById('eqDept')?.value || '').trim() || inferDepartmentFromEquipmentText(name, model);
+        const location = (document.getElementById('eqLocation')?.value || '').trim() || dept;
+        const status = normalizeStatusLabel(document.getElementById('eqStatus')?.value || 'Operational');
+        const installDate = document.getElementById('eqLastPM')?.value || new Date().toISOString().split('T')[0];
+        const nextDue = computeNextPMFromInstall(installDate);
+
+        if (!Array.isArray(window.equipmentList)) {
+            window.equipmentList = [];
+        }
+
+        let commitAction = '';
+        if (editId) {
+            const idx = window.equipmentList.findIndex(e => String(e.id) === String(editId));
+            if (idx !== -1) {
+                window.equipmentList[idx] = {
+                    ...window.equipmentList[idx],
+                    name,
+                    model,
+                    serial,
+                    facility,
+                    department: dept,
+                    dept: dept,
+                    location,
+                    status,
+                    installDate,
+                    lastPM: installDate,
+                    nextDue
+                };
+                commitAction = `Update Equipment: ${name} (${serial})`;
+            }
+        } else {
+            const newAsset = {
+                id: Date.now(),
+                name,
+                model,
+                serial,
+                facility,
+                department: dept,
+                dept: dept,
+                location,
+                risk: 'High',
+                status,
+                installDate,
+                lastPM: installDate,
+                nextDue,
+                interval: 'Semi-Annual (6 Mos)'
+            };
+            window.equipmentList.unshift(newAsset);
+            commitAction = `Add Equipment: ${name} (${model}) at ${facility}`;
+        }
+
+        try { if (typeof equipmentList !== 'undefined') equipmentList = window.equipmentList; } catch (_) {}
+        localStorage.setItem('seiralab_equipment', JSON.stringify(window.equipmentList));
+
+        closeAddModal();
+        rebuildHospitalAndDeptFilters();
+        renderFullSearchableInventoryTable();
+        syncDashboardCountersAndTables();
+        renderFullPMScheduleCards();
+        if (typeof window.renderReportsAnalyticsSection === 'function') {
+            window.renderReportsAnalyticsSection();
+        }
+        buildSystemNotifications();
+
+        if (typeof showNotificationToast === 'function') {
+            showNotificationToast(`Added ${name} (${model}) to ${facility}!`);
+        }
+        if (typeof pushToGitHub === 'function') {
+            await pushToGitHub(commitAction);
+        }
+    }
+
+    // Bind all Add Equipment buttons in the DOM directly so clicking always works
+    function bindAddEquipmentButtons() {
+        document.querySelectorAll('button[onclick*="openAddModal"]').forEach(btn => {
+            btn.onclick = openAddModal;
+        });
+        const eqForm = document.getElementById('equipmentForm');
+        if (eqForm) {
+            eqForm.onsubmit = saveEquipment;
+        }
+    }
+
+    window.openAddModal = openAddModal;
+    window.closeAddModal = closeAddModal;
+    window.saveEquipment = saveEquipment;
+
+    // Hook into role enforcement & run continuously
+    const _prevEnforceRoleUI = window.enforceRoleNavigationAndMenuUI;
+    window.enforceRoleNavigationAndMenuUI = function (force) {
+        if (typeof _prevEnforceRoleUI === 'function') _prevEnforceRoleUI(force);
+        applyAdminOnlyCloudBadgeAndRemovePrintSummary();
+        bindAddEquipmentButtons();
+    };
+
+    applyAdminOnlyCloudBadgeAndRemovePrintSummary();
+    bindAddEquipmentButtons();
+    setInterval(applyAdminOnlyCloudBadgeAndRemovePrintSummary, 800);
 })();
